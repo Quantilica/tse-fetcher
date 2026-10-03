@@ -25,6 +25,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   (argparse) quando `typer` não está disponível.
 
 ### Alterado
+- Migração para `FetcherApp` (`quantilica.cli.sdk`), eliminando stubs manuais e reduzindo `cli.py` para thin wrapper canônico de 19 LOC.
 - `README.md`: instalação prioriza o fluxo canônico `quantilica install tse`
   (índice estático PEP 503) e documenta `uv sync` para o ambiente de
   desenvolvimento; exemplos com `--dry-run`.
