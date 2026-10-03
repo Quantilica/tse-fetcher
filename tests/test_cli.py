@@ -111,3 +111,39 @@ def test_sync_anos_fora_da_cobertura_sao_filtrados(monkeypatch, tmp_path) -> Non
     assert any("receitas_candidato_2020_" in url for url in urls)
     assert not any("receitas_candidato_2018" in url for url in urls)
     assert not any("receitas_candidato_2019" in url for url in urls)
+
+
+def test_sync_dry_run_nao_baixa(monkeypatch, tmp_path, capsys) -> None:
+    """sync --dry-run imprime o plano e não faz nenhum download."""
+    fake = _with_fake_http(monkeypatch)
+    main(["sync", "bens", "-y", "2020:2022", "-o", str(tmp_path), "--dry-run"])
+    out = capsys.readouterr().out
+    assert fake.calls == [], "dry-run não deve tocar na rede"
+    assert "[bens] 2020 — -> bem_candidato_2020.zip" in out
+    assert "(https://cdn.tse.jus.br/" in out
+    assert "Total: 2 arquivo(s) planejados" in out
+    # 2021 está na faixa mas não é ano eleitoral → conta como skipped.
+    assert "1 par(es) ignorado(s) fora da cobertura" in out
+
+
+def test_sync_dry_run_sem_skipped(monkeypatch, tmp_path, capsys) -> None:
+    """sync --dry-run com anos exatos não reporta pares ignorados."""
+    fake = _with_fake_http(monkeypatch)
+    main(["sync", "bens", "-y", "2020", "-o", str(tmp_path), "--dry-run"])
+    out = capsys.readouterr().out
+    assert fake.calls == []
+    assert "Total: 1 arquivo(s) planejados" in out
+    assert "0 par(es) ignorado(s) fora da cobertura" in out
+
+
+def test_sync_dry_run_per_uf_e_skipped(monkeypatch, tmp_path, capsys) -> None:
+    """sync --dry-run expande UFs e contabiliza pares fora da cobertura."""
+    fake = _with_fake_http(monkeypatch)
+    main(["sync", "receitas", "-y", "2018:2020", "-o", str(tmp_path), "--dry-run"])
+    out = capsys.readouterr().out
+    assert fake.calls == []
+    assert "[receitas] 2020 AC -> receitas_candidato_2020_AC.zip" in out
+    assert "[receitas] 2018" not in out
+    assert "Total: 27 arquivo(s) planejados" in out
+    # 2018 e 2019 anteriores ao recorte do dataset → 2 pares ignorados.
+    assert "2 par(es) ignorado(s) fora da cobertura" in out

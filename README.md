@@ -9,10 +9,16 @@ Parte do ecossistema [Quantilica](https://github.com/Quantilica).
 
 ## Instalação
 
-Via hub Quantilica (recomendado):
+Via hub Quantilica (recomendado — distribuído pelo índice estático PEP 503):
 
 ```bash
 quantilica install tse
+```
+
+Para contribuir no repositório (ambiente de desenvolvimento do workspace):
+
+```bash
+uv sync
 ```
 
 O pacote também roda standalone — traz apenas `quantilica-core`
@@ -32,6 +38,10 @@ uv add tse-fetcher
 | `receitas` | Receitas de campanha (prestação de contas) | `receitas_candidato` | 2020 | sim |
 | `despesas` | Despesas de campanha (prestação de contas) | `despesas_candidato` | 2020 | sim |
 
+Datasets particionados por UF (receitas e despesas) geram **27 arquivos por
+ano eleitoral** (uma por UF). Use `--dry-run` para pré-visualizar o volume
+antes de baixar.
+
 ## Uso como biblioteca
 
 ```python
@@ -48,6 +58,10 @@ path = client.download("candidatos", 2022, output_dir="/data/tse")
 
 # Receitas por UF (dataset per_uf)
 path = client.download("receitas", 2022, uf="SP")
+
+# Pré-visualizar um plano de sync sem tocar na rede
+items, skipped = client.plan_sync(["receitas"], [2022])
+print(len(items), skipped)  # 27 arquivos (27 UFs), 0 pares ignorados
 ```
 
 ## CLI
@@ -62,6 +76,19 @@ tse-fetcher list
 tse-fetcher info candidatos
 tse-fetcher sync -o /data/tse --years 2018:2026 --verbose
 tse-fetcher sync bens votacao 2022
+
+# Pré-visualizar o que seria baixado, sem tocar na rede:
+tse-fetcher sync --dry-run
+tse-fetcher sync receitas despesas -y 2022:2026 --dry-run
+```
+
+Saída do `--dry-run` (formato textual, uma linha por arquivo):
+
+```text
+[receitas] 2022 AC -> receitas_candidato_2022_AC.zip (https://cdn.tse.jus.br/...)
+[receitas] 2022 AL -> receitas_candidato_2022_AL.zip (https://cdn.tse.jus.br/...)
+...
+Total: 54 arquivo(s) planejados para download. 27 par(es) ignorado(s) fora da cobertura.
 ```
 
 ### Plugin do hub (`quantilica`, Typer + Rich)
@@ -70,6 +97,10 @@ tse-fetcher sync bens votacao 2022
 quantilica tse list
 quantilica tse info candidatos
 quantilica tse sync -o /data/tse --years 2018:2026
+
+# Pré-visualização em tabela Rich (Dataset, Ano, UF, Arquivo, URL + sumário):
+quantilica tse sync --dry-run
+quantilica tse sync receitas -y 2022 --dry-run
 ```
 
 Verbos `sync` (download, idempotente e tudo por padrão), `list` (catálogo

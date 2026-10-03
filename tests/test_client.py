@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tse_fetcher import SyncPlanItem
 from tse_fetcher.client import TseClient
 
 
@@ -103,3 +104,106 @@ def test_download_gera_manifest_e_retorna_path(client, tmp_path) -> None:
     assert call["source_id"] == "tse"
     assert call["producer"].startswith("Tribunal")
     assert call["dataset_id"] == "candidatos_2022"
+
+
+def test_sync_plan_item_imutavel() -> None:
+    """SyncPlanItem é frozen — atribuição gera erro."""
+    item = SyncPlanItem(
+        dataset="bens",
+        dataset_name="Bens de candidatos (bem_candidato)",
+        ano=2022,
+        uf=None,
+        filename="bem_candidato_2022.zip",
+        url="https://cdn.tse.jus.br/bem_candidato_2022.zip",
+        target=Path("/data/tse/bem_candidato_2022.zip"),
+    )
+    with pytest.raises(Exception):  # noqa: B017, PT011
+        item.ano = 2024
+
+
+# --- plan_sync / sync(dry_run) ---
+
+
+def test_plan_sync_nacional(client, tmp_path) -> None:
+    """plan_sync lista URLs/alvos sem tocar na rede nem gravar em disco."""
+    c, rec, _created = client
+    items, skipped = c.plan_sync(["candidatos"], [2022], output_dir=tmp_path)
+    assert rec.calls == [], "plan_sync não deve fazer download"
+    assert skipped == 0
+    assert len(items) == 1
+    item = items[0]
+    assert item.dataset == "candidatos"
+    assert item.dataset_name.startswith("Candidatos")
+    assert item.ano == 2022
+    assert item.uf is None
+    assert item.filename == "consulta_cand_2022.zip"
+    assert item.url.endswith("consulta_cand/consulta_cand_2022.zip")
+    assert item.target == tmp_path / "consulta_cand_2022.zip"
+    assert not (tmp_path / "consulta_cand_2022.zip").exists()
+
+
+def test_plan_sync_per_uf_expande_27_ufs(client, tmp_path) -> None:
+    """Dataset per_uf expande o plano para uma entrada por UF."""
+    c, rec, _created = client
+    items, skipped = c.plan_sync(["receitas"], [2022], output_dir=tmp_path)
+    assert rec.calls == []
+    assert skipped == 0
+    assert len(items) == 27
+    assert all(item.uf is not None for item in items)
+    ufs = [item.uf for item in items]
+    assert ufs[0] == "AC" and ufs[-1] == "TO"
+    assert sorted(ufs) == list(ufs)  # ordem alfabética de UFS
+    sp = next(item for item in items if item.uf == "SP")
+    assert sp.filename == "receitas_candidato_2022_SP.zip"
+    assert sp.url.endswith("receitas_candidato_2022_SP.zip")
+    assert sp.target.parent == tmp_path
+
+
+def test_plan_sync_anos_fora_da_cobertura_contam_skipped(client, tmp_path) -> None:
+    """Pares fora da cobertura eleitoral entram em skipped sem item."""
+    c, rec, _created = client
+    items, skipped = c.plan_sync(
+        ["receitas", "bens"], [2018, 2020], output_dir=tmp_path
+    )
+    assert rec.calls == []
+    # receitas não cobre 2018 (first_year=2020); bens cobre ambos.
+    assert skipped == 1
+    planned = {(item.dataset, item.ano) for item in items}
+    assert ("bens", 2018) in planned
+    assert ("receitas", 2018) not in planned
+    assert ("receitas", 2020) in planned
+
+
+def test_plan_sync_dataset_desconhecido(client) -> None:
+    """Dataset inválido aborta o planejamento com ValueError."""
+    c, _rec, _created = client
+    with pytest.raises(ValueError, match="Dataset desconhecido"):
+        c.plan_sync(["nao-existe"], [2022])
+
+
+def test_sync_dry_run_nao_baixa(client, tmp_path) -> None:
+    """sync(dry_run=True) retorna (0, 0, skipped) sem chamar a rede."""
+    c, rec, _created = client
+    ok, failed, skipped = c.sync(
+        ["bens"], [2018, 2020], output_dir=tmp_path, dry_run=True
+    )
+    assert (ok, failed, skipped) == (0, 0, 0)
+    assert rec.calls == []
+    assert not any(tmp_path.rglob("*.zip"))
+
+
+def test_sync_dry_run_com_callback(client, tmp_path) -> None:
+    """sync(dry_run=True) emite on_done por item planejado e skipped."""
+    c, rec, _created = client
+    eventos: list[tuple[str, str]] = []
+    ok, failed, skipped = c.sync(
+        ["receitas"],
+        [2018, 2020],
+        output_dir=tmp_path,
+        on_done=lambda filename, result: eventos.append((filename, result)),
+        dry_run=True,
+    )
+    assert (ok, failed, skipped) == (0, 0, 1)
+    assert rec.calls == []
+    assert all(result == "skipped" for _, result in eventos)
+    assert eventos[-1] == ("pares ignorados fora da cobertura do dataset", "skipped")

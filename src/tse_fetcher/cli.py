@@ -68,6 +68,12 @@ def get_parser() -> argparse.ArgumentParser:
         help="Re-baixar mesmo se o arquivo local estiver fresco.",
     )
     sync.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Listar arquivos a baixar sem executar download.",
+    )
+    sync.add_argument(
         "--verbose",
         action="store_true",
         default=False,
@@ -140,6 +146,18 @@ def _cmd_sync(args: argparse.Namespace) -> None:
         logging.getLogger("tse_fetcher").setLevel(logging.WARNING)
 
     client = TseClient()
+
+    if args.dry_run:
+        items, skipped = client.plan_sync(datasets, anos, output_dir=args.output)
+        for item in items:
+            uf = item.uf if item.uf is not None else "—"
+            print(f"[{item.dataset}] {item.ano} {uf} -> {item.filename} ({item.url})")
+        print(
+            f"Total: {len(items)} arquivo(s) planejados para download. "
+            f"{skipped} par(es) ignorado(s) fora da cobertura."
+        )
+        return
+
     ok, failed, skipped = client.sync(
         datasets,
         anos,

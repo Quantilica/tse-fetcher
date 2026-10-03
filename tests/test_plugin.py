@@ -75,3 +75,25 @@ def test_sync_dataset_invalido_aborta(fake_http, tmp_path) -> None:
     result = runner.invoke(app, ["sync", "foofetch", "-y", "2022", "-o", str(tmp_path)])
     assert result.exit_code == 1
     assert fake_http.urls == []
+
+
+def test_sync_dry_run_nao_baixa(fake_http, tmp_path) -> None:
+    """sync --dry-run renderiza tabela de plano e não faz download."""
+    result = runner.invoke(
+        app, ["sync", "bens", "-y", "2020:2022", "-o", str(tmp_path), "--dry-run"]
+    )
+    assert result.exit_code == 0
+    assert fake_http.urls == []
+    assert "bem_candidato_2020.zip" in result.output
+    assert "bem_candidato_2022.zip" in result.output
+    assert "Total:" in result.output
+    assert "2 arquivo(s) planejados" in result.output
+
+
+def test_sync_dry_run_dataset_invalido_aborta(fake_http, tmp_path) -> None:
+    """sync --dry-run valida datasets antes de planejar."""
+    result = runner.invoke(
+        app, ["sync", "foofetch", "-y", "2022", "-o", str(tmp_path), "--dry-run"]
+    )
+    assert result.exit_code == 1
+    assert fake_http.urls == []

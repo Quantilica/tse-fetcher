@@ -17,6 +17,10 @@ try:
 
         console = get_console()
     except ImportError:  # pragma: no cover - fallback sem quantilica-cli
+        # Fallback: sem `quantilica-cli` os stubs abaixo recriam uma
+        # superfície de API compatível com a UI do hub, permitindo que
+        # o pacote rode standalone apontando para a `Console` local do
+        # Rich e para a expansão de anos canônica de `quantilica-core`.
         import logging
 
         from rich.console import Console
@@ -24,11 +28,29 @@ try:
         console = Console()
 
         def setup_rich_logging(verbose: bool, console=None) -> None:  # noqa: ANN001
-            """Fallback: logging básico sem RichHandler."""
+            """Stub de degradação: logging básico, sem ``RichHandler``.
+
+            Args:
+                verbose (bool): Nível verbose (DEBUG) ou padrão (WARNING).
+                console (Console | None): Ignorado; mantido pela paridade
+                    de assinatura com ``quantilica.cli.ui``.
+            """
             logging.basicConfig(level=logging.DEBUG if verbose else logging.WARNING)
 
         def expand_years_cli(years, default_range=None, console=None):  # noqa: ANN001
-            """Fallback de expansão de anos via quantilica-core.dates."""
+            """Stub de degradação: expansão de anos via ``quantilica-core``.
+
+            Args:
+                years (list[str] | None): Anos/intervalos informados.
+                default_range (str | None): Faixa padrão quando ``years``
+                    for vazio (ex.: ``"2018:2026"``).
+                console (Console | None): Ignorado; mantido pela paridade
+                    de assinatura com ``quantilica.cli.ui``. Avisos de
+                    formato inválido vão pelo logging, não pelo Rich.
+
+            Returns:
+                list[int]: Anos eleitorais expandidos e validados.
+            """
             from quantilica.core.dates import expand_year_range
 
             specs = years or [default_range]
@@ -92,6 +114,12 @@ if _HAS_UI:
         verbose: Annotated[
             bool, typer.Option("--verbose", help="Logs detalhados")
         ] = False,
+        dry_run: Annotated[
+            bool,
+            typer.Option(
+                "--dry-run", help="Listar arquivos a baixar sem executar download."
+            ),
+        ] = False,
     ) -> None:
         """Baixar/atualizar dados do ODSele (tudo por padrão)."""
         setup_rich_logging(verbose, console=console)
@@ -108,6 +136,31 @@ if _HAS_UI:
         except ValueError as exc:
             console.print(f"[red]Erro:[/red] {exc}")
             raise typer.Exit(code=1) from None
+
+        if dry_run:
+            from rich.table import Table
+
+            items, skipped = client.plan_sync(selections, anos, output_dir=output)
+            table = Table(show_header=True, header_style="bold")
+            table.add_column("Dataset", style="cyan")
+            table.add_column("Ano", justify="right")
+            table.add_column("UF", style="magenta")
+            table.add_column("Arquivo", style="green")
+            table.add_column("URL", style="dim")
+            for item in items:
+                table.add_row(
+                    item.dataset,
+                    str(item.ano),
+                    item.uf or "—",
+                    item.filename,
+                    item.url,
+                )
+            console.print(table)
+            console.print(
+                f"\n[bold]Total:[/bold] {len(items)} arquivo(s) planejados para "
+                f"download. {skipped} par(es) ignorado(s) fora da cobertura."
+            )
+            return
 
         from rich.progress import (
             BarColumn,
@@ -200,5 +253,13 @@ if _HAS_UI:
 else:
     from . import cli as _cli
 
-    # Fallback nativo: sem typer/rich, o entry point cai na CLI argparse.
+    # Fallback nativo (degradação graciosa): quando `typer` não está
+    # disponível (instalação minimalista sem os extras de UI do hub),
+    # o entry point `quantilica.fetchers` aponta para a CLI argparse
+    # nativa (`tse_fetcher.cli.main`). Assim `quantilica tse ...`
+    # continua funcional com o mesmo vocabulário de subcomandos —
+    # `list`, `sync` e `info` — incluindo `sync --dry-run`, apenas
+    # sem a renderização Rich de tabelas/progresso. Nenhuma importação
+    # de `quantilica-cli` é feita: o pacote permanece puro, dependendo
+    # estritamente de `quantilica-core`.
     app = _cli.main  # type: ignore[assignment]

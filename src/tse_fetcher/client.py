@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from quantilica.core.http import HttpClient
@@ -19,6 +20,21 @@ from .constants import (
 )
 
 DONE_CALLBACK = Callable[[str, str], None]
+
+__all__ = ["DONE_CALLBACK", "SyncPlanItem", "TseClient"]
+
+
+@dataclass(frozen=True)
+class SyncPlanItem:
+    """Item de um plano de sincronização (pré-visualização de download)."""
+
+    dataset: str
+    dataset_name: str
+    ano: int
+    uf: str | None
+    filename: str
+    url: str
+    target: Path
 
 
 class TseClient:
@@ -134,6 +150,46 @@ class TseClient:
             force=force,
         )
 
+    def plan_sync(
+        self,
+        datasets: list[str],
+        anos: list[int],
+        output_dir: Path | str = DEFAULT_OUTPUT,
+    ) -> tuple[list[SyncPlanItem], int]:
+        """Planejar a sincronização sem tocar na rede ou gravar em disco.
+
+        Calcula a lista ordenada de arquivos elegíveis e a contagem de
+        pares (dataset, ano) ignorados — fora dos anos eleitorais ou
+        anteriores ao primeiro ano coberto pelo dataset.
+
+        Args:
+            datasets (list[str]): Nomes canônicos de datasets.
+            anos (list[int]): Anos eleitorais desejados.
+            output_dir (Path | str): Diretório de saída.
+
+        Returns:
+            tuple[list[SyncPlanItem], int]: Itens planejados e pares
+                ignorados.
+
+        Raises:
+            ValueError: Se algum dataset for desconhecido.
+        """
+        specs = {dataset: self.get_dataset(dataset) for dataset in datasets}
+
+        items: list[SyncPlanItem] = []
+        skipped = 0
+        output = Path(output_dir)
+        for spec in specs.values():
+            for ano in anos:
+                if ano not in ELECTION_YEARS or ano < spec.first_year:
+                    skipped += 1
+                    continue
+                if spec.per_uf:
+                    items.extend(_plan_item(self, spec, ano, uf, output) for uf in UFS)
+                else:
+                    items.append(_plan_item(self, spec, ano, None, output))
+        return items, skipped
+
     def sync(
         self,
         datasets: list[str],
@@ -141,6 +197,7 @@ class TseClient:
         output_dir: Path | str = DEFAULT_OUTPUT,
         force: bool = False,
         on_done: DONE_CALLBACK | None = None,
+        dry_run: bool = False,
     ) -> tuple[int, int, int]:
         """Baixar vários datasets/anos com tolerância a falhas por item.
 
@@ -157,6 +214,8 @@ class TseClient:
             on_done (DONE_CALLBACK | None): Callback por arquivo —
                 ``(filename, result)`` com ``result`` em
                 ``{"ok", "failed", "skipped"}``.
+            dry_run (bool): Planejar sem executar downloads; retorna
+                imediatamente ``(0, 0, skipped)``.
 
         Returns:
             tuple[int, int, int]: (downloads OK, falhas, pares ignorados).
@@ -164,6 +223,15 @@ class TseClient:
         Raises:
             ValueError: Se algum dataset for desconhecido.
         """
+        if dry_run:
+            items, skipped = self.plan_sync(datasets, anos, output_dir)
+            if on_done is not None:
+                for item in items:
+                    on_done(item.filename, "skipped")
+                if skipped:
+                    on_done("pares ignorados fora da cobertura do dataset", "skipped")
+            return 0, 0, skipped
+
         specs = {dataset: self.get_dataset(dataset) for dataset in datasets}
 
         members: list[tuple[DatasetSpec, int, str | None]] = []
@@ -210,6 +278,37 @@ class TseClient:
         except Exception:
             return 0, 1
         return 1, 0
+
+
+def _plan_item(
+    client: TseClient,
+    spec: DatasetSpec,
+    ano: int,
+    uf: str | None,
+    output_dir: Path,
+) -> SyncPlanItem:
+    """Montar um SyncPlanItem para o par (dataset, ano, UF).
+
+    Args:
+        client (TseClient): Cliente base (para resolver a URL).
+        spec (DatasetSpec): Especificação do dataset.
+        ano (int): Ano eleitoral.
+        uf (str | None): Sigla da UF, se houver.
+        output_dir (Path): Diretório de saída.
+
+    Returns:
+        SyncPlanItem: Item prontinho para download/preview.
+    """
+    filename = _filename(spec, ano, uf)
+    return SyncPlanItem(
+        dataset=spec.key,
+        dataset_name=spec.name,
+        ano=ano,
+        uf=uf,
+        filename=filename,
+        url=client.get_download_url(spec.key, ano, uf),
+        target=output_dir / filename,
+    )
 
 
 def _filename(spec: DatasetSpec, ano: int, uf: str | None) -> str:

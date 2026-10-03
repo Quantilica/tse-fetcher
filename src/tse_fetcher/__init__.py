@@ -2,7 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .client import TseClient
+from .client import SyncPlanItem, TseClient
 from .constants import BASE_URL, DATASETS, DatasetSpec
 
 try:
@@ -10,4 +10,11 @@ try:
 except PackageNotFoundError:
     __version__ = "0.0.0"
 
-__all__ = ["__version__", "TseClient", "DATASETS", "DatasetSpec", "BASE_URL"]
+__all__ = [
+    "__version__",
+    "SyncPlanItem",
+    "TseClient",
+    "DATASETS",
+    "DatasetSpec",
+    "BASE_URL",
+]

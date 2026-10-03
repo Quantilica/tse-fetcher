@@ -5,6 +5,30 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [Unreleased]
+
+### Adicionado
+- Flag `--dry-run` no comando `sync` (CLI nativa e plugin Typer/Rich),
+  conforme `docs/docs/normas/cli-fetchers.md` §9: pré-visualiza o plano de
+  download — datasets particionados por UF (`receitas`, `despesas`) geram 27
+  arquivos por ano eleitoral — sem tocar na rede nem gravar em disco.
+- `client.py`: dataclass imutável `SyncPlanItem` (dataset, dataset_name, ano,
+  uf, filename, url, target), método `TseClient.plan_sync()` que calcula os
+  arquivos elegíveis e os pares (dataset, ano) ignorados fora da cobertura,
+  e parâmetro opcional `dry_run` em `TseClient.sync()` (retorna
+  `(0, 0, skipped)`). `SyncPlanItem` exportado no `__init__` do pacote.
+- CLI nativa: saída textual `[dataset] ano UF -> filename (URL)` com linha de
+  sumário (total planejado + pares ignorados).
+- Plugin Typer/Rich: pré-visualização em `Rich Table` (colunas Dataset, Ano,
+  UF, Arquivo, URL) com sumário via `console.print`.
+- Documentação formal da degradação graciosa do plugin para a CLI nativa
+  (argparse) quando `typer` não está disponível.
+
+### Alterado
+- `README.md`: instalação prioriza o fluxo canônico `quantilica install tse`
+  (índice estático PEP 503) e documenta `uv sync` para o ambiente de
+  desenvolvimento; exemplos com `--dry-run`.
+
 ## [0.1.0] - 2026-10-02
 
 ### Adicionado
