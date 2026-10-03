@@ -1,18 +1,15 @@
-"""Testes do plugin Typer do tse-fetcher."""
+"""Testes do plugin Typer (FetcherApp) do tse-fetcher."""
 
 from __future__ import annotations
 
 import pytest
+from quantilica.cli.sdk import FetcherApp
+from typer.testing import CliRunner
 
 from tse_fetcher import plugin as plugin_module
-
-typer = pytest.importorskip("typer")
-
-from typer.testing import CliRunner  # noqa: E402
+from tse_fetcher.plugin import app, fetcher
 
 runner = CliRunner()
-
-app = plugin_module.app
 
 
 class _FakeHttp:
@@ -39,6 +36,13 @@ def fake_http(monkeypatch) -> _FakeHttp:
 
     monkeypatch.setattr(plugin_module, "TseClient", make_client)
     return fake
+
+
+def test_fetcher_app_canonica() -> None:
+    """plugin expõe a FetcherApp canônica e usa fetcher.app como app."""
+    assert isinstance(fetcher, FetcherApp)
+    assert fetcher.name == "tse-fetcher"
+    assert app is fetcher.app
 
 
 def test_list() -> None:

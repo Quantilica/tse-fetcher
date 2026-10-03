@@ -66,41 +66,19 @@ print(len(items), skipped)  # 27 arquivos (27 UFs), 0 pares ignorados
 
 ## CLI
 
-O pacote expõe duas interfaces:
-
-### CLI nativa (`tse-fetcher`, argparse — sem dependências de UI)
+O pacote expõe uma CLI unificada (Typer + Rich via `FetcherApp` de
+`quantilica.cli.sdk`), usada tanto pelo entry point `tse-fetcher` quanto pelo
+plugin do hub (`quantilica tse`):
 
 ```bash
-tse-fetcher --version
 tse-fetcher list
 tse-fetcher info candidatos
-tse-fetcher sync -o /data/tse --years 2018:2026 --verbose
-tse-fetcher sync bens votacao 2022
+tse-fetcher sync -o /data/tse -y 2018:2026 --verbose
+tse-fetcher sync bens votacao -y 2022
 
-# Pré-visualizar o que seria baixado, sem tocar na rede:
+# Pré-visualizar o que seria baixado, sem tocar na rede (tabela Rich):
 tse-fetcher sync --dry-run
 tse-fetcher sync receitas despesas -y 2022:2026 --dry-run
-```
-
-Saída do `--dry-run` (formato textual, uma linha por arquivo):
-
-```text
-[receitas] 2022 AC -> receitas_candidato_2022_AC.zip (https://cdn.tse.jus.br/...)
-[receitas] 2022 AL -> receitas_candidato_2022_AL.zip (https://cdn.tse.jus.br/...)
-...
-Total: 54 arquivo(s) planejados para download. 27 par(es) ignorado(s) fora da cobertura.
-```
-
-### Plugin do hub (`quantilica`, Typer + Rich)
-
-```bash
-quantilica tse list
-quantilica tse info candidatos
-quantilica tse sync -o /data/tse --years 2018:2026
-
-# Pré-visualização em tabela Rich (Dataset, Ano, UF, Arquivo, URL + sumário):
-quantilica tse sync --dry-run
-quantilica tse sync receitas -y 2022 --dry-run
 ```
 
 Verbos `sync` (download, idempotente e tudo por padrão), `list` (catálogo
