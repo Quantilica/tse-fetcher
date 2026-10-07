@@ -31,7 +31,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "quantilica-core>=0.8.0",
+    "quantilica-core>=0.10.0",
 ]
 
 [project.urls]
@@ -51,9 +51,9 @@ dev = [
     "pytest>=8.0.0",
     # Só para os testes: tests/test_plugin.py exercita o FetcherApp do host e
     # typer.testing. Nunca em [project].dependencies — o plugin consome o que o
-    # host já traz. Piso = 0.7.0, primeira versão com quantilica.cli.sdk
-    # (mesma assinatura de FetcherApp usada aqui).
-    "quantilica-cli>=0.7.0",
+    # host já traz. Piso = 0.10.0, primeira versão com CheckPlan/check/from-plan
+    # (mesma assinatura usada aqui).
+    "quantilica-cli>=0.10.0",
     "typer>=0.15.0",
     "rich>=13.0.0",
 ]
