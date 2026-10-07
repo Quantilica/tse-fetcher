@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from quantilica.core.http import HttpClient
+from quantilica.core.http import HttpClient, is_remote_more_recent
 
 from .constants import (
     BASE_URL,
@@ -232,33 +232,102 @@ class TseClient:
                     on_done("pares ignorados fora da cobertura do dataset", "skipped")
             return 0, 0, skipped
 
-        specs = {dataset: self.get_dataset(dataset) for dataset in datasets}
+        items, skipped = self.plan_sync(datasets, anos, output_dir)
+        ok, failed = self.download_items(items, output_dir, force, on_done)
+        if skipped and on_done is not None:
+            on_done("pares ignorados fora da cobertura do dataset", "skipped")
+        return ok, failed, skipped
 
-        members: list[tuple[DatasetSpec, int, str | None]] = []
-        skipped = 0
-        for spec in specs.values():
-            for ano in anos:
-                if ano not in ELECTION_YEARS or ano < spec.first_year:
-                    skipped += 1
-                    continue
-                if spec.per_uf:
-                    members.extend((spec, ano, uf) for uf in UFS)
-                else:
-                    members.append((spec, ano, None))
+    def download_items(
+        self,
+        items: list[SyncPlanItem],
+        output_dir: Path | str = DEFAULT_OUTPUT,
+        force: bool = False,
+        on_done: DONE_CALLBACK | None = None,
+    ) -> tuple[int, int]:
+        """Baixar itens já planejados, com tolerância a falhas por item.
 
+        Args:
+            items: Itens de plano (ex.: vindos de ``plan_sync`` ou de um
+                plano de checagem filtrado).
+            output_dir: Diretório de saída (recalcula o destino a partir do
+                nome canônico do arquivo).
+            force: Forçar re-download.
+            on_done: Callback por arquivo — ``(filename, result)``.
+
+        Returns:
+            tuple[int, int]: (downloads OK, falhas).
+        """
         ok = failed = 0
-        for spec, ano, uf in members:
-            filename = _filename(spec, ano, uf)
+        for item in items:
             ok_one, failed_one = self._download_one(
-                spec.key, ano, uf, output_dir, force
+                item.dataset, item.ano, item.uf, output_dir, force
             )
             ok += ok_one
             failed += failed_one
             if on_done is not None:
-                on_done(filename, "ok" if ok_one else "failed")
-        if skipped and on_done is not None:
-            on_done("pares ignorados fora da cobertura do dataset", "skipped")
-        return ok, failed, skipped
+                on_done(item.filename, "ok" if ok_one else "failed")
+        return ok, failed
+
+    def check_item(self, item: SyncPlanItem) -> dict:
+        """Verificar frescor de um item planejado sem baixar.
+
+        Faz HEAD na URL e compara contra o arquivo local usando o mesmo
+        predicado de freshness do download.
+
+        Args:
+            item: Item de plano de sincronização.
+
+        Returns:
+            dict: Veredicto com as chaves de ``CheckPlanItem`` do SDK mais
+                ``entry`` (reconstruível para download posterior).
+        """
+        base = {
+            "dataset": item.dataset,
+            "id": item.filename,
+            "url": item.url,
+            "partition": str(item.ano) + (f"-{item.uf}" if item.uf else ""),
+            "local_path": str(item.target),
+            "entry": {
+                "id": item.filename,
+                "url": item.url,
+                "dataset": item.dataset,
+                "ano": item.ano,
+                "uf": item.uf,
+                "filename": item.filename,
+            },
+        }
+        try:
+            head = self.http.head(item.url)
+        except Exception as exc:
+            return {
+                **base,
+                "remote_etag": None,
+                "remote_last_modified": None,
+                "remote_size": None,
+                "local_exists": item.target.exists(),
+                "action": "download",
+                "reason": f"metadata-unavailable: {exc}",
+            }
+        try:
+            size = int(head.headers.get("Content-Length") or 0) or None
+        except (TypeError, ValueError):
+            size = None
+        exists = item.target.exists()
+        if exists and not is_remote_more_recent(head, item.target):
+            action, reason = "skip-up-to-date", "local-fresh"
+        else:
+            action = "download"
+            reason = "not-present" if not exists else "remote-newer"
+        return {
+            **base,
+            "remote_etag": head.headers.get("ETag"),
+            "remote_last_modified": head.headers.get("Last-Modified"),
+            "remote_size": size,
+            "local_exists": exists,
+            "action": action,
+            "reason": reason,
+        }
 
     def _download_one(
         self,

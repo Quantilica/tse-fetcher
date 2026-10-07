@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx2
 import pytest
 
 from tse_fetcher import SyncPlanItem
@@ -207,3 +208,76 @@ def test_sync_dry_run_com_callback(client, tmp_path) -> None:
     assert rec.calls == []
     assert all(result == "skipped" for _, result in eventos)
     assert eventos[-1] == ("pares ignorados fora da cobertura do dataset", "skipped")
+
+
+def _mock_transport(
+    head_status: int = 200,
+    head_headers: dict | None = None,
+    content: bytes = b"zip-bytes-fake",
+    fail_head: bool = False,
+):
+    """Transporte mock com HEAD configurável e GET com conteúdo fixo."""
+
+    def handler(request):
+        if request.method == "HEAD":
+            if fail_head:
+                raise httpx2.ConnectError("rede fora")
+            return httpx2.Response(head_status, headers=head_headers or {})
+        return httpx2.Response(200, content=content)
+
+    return httpx2.MockTransport(handler)
+
+
+_HEAD_OK = {
+    "Content-Length": "14",
+    "Last-Modified": "Mon, 01 Jan 2024 00:00:00 GMT",
+    "ETag": '"tse1"',
+}
+
+
+def test_check_item_missing_downloads(tmp_path) -> None:
+    """Sem arquivo local, o veredicto é download/not-present."""
+    c = TseClient(transport=_mock_transport(head_headers=_HEAD_OK))
+    items, _ = c.plan_sync(["bens"], [2022], output_dir=tmp_path)
+    assert items, "esperava ao menos um item planejado"
+    verdict = c.check_item(items[0])
+    assert verdict["action"] == "download"
+    assert verdict["reason"] == "not-present"
+    assert verdict["remote_etag"] == '"tse1"'
+    assert verdict["remote_size"] == 14
+    assert verdict["local_exists"] is False
+    assert verdict["entry"]["filename"] == items[0].filename
+
+
+def test_check_item_fresh_skips(tmp_path) -> None:
+    """Arquivo local fresco gera skip-up-to-date."""
+    c = TseClient(transport=_mock_transport(head_headers=_HEAD_OK))
+    items, _ = c.plan_sync(["bens"], [2022], output_dir=tmp_path)
+    target = items[0].target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"0" * 14)
+    verdict = c.check_item(items[0])
+    assert verdict["action"] == "skip-up-to-date"
+    assert verdict["reason"] == "local-fresh"
+    assert verdict["local_exists"] is True
+
+
+def test_check_item_head_error_downloads(tmp_path) -> None:
+    """HEAD falhando gera download/metadata-unavailable (sync tentará)."""
+    c = TseClient(transport=_mock_transport(fail_head=True))
+    items, _ = c.plan_sync(["bens"], [2022], output_dir=tmp_path)
+    verdict = c.check_item(items[0])
+    assert verdict["action"] == "download"
+    assert verdict["reason"].startswith("metadata-unavailable")
+
+
+def test_download_items_baixa_lista_planejada(tmp_path) -> None:
+    """download_items baixa exatamente os itens recebidos."""
+    rec = _RecordingHttp()
+    c = TseClient()
+    c.http = rec  # type: ignore[assignment]
+    items, _ = c.plan_sync(["bens"], [2022], output_dir=tmp_path)
+    ok, failed = c.download_items(items, tmp_path)
+    assert failed == 0
+    assert ok == len(items) > 0
+    assert len(rec.calls) == len(items)

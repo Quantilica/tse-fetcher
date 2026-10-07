@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from quantilica.cli.sdk import FetcherApp
+from quantilica.cli.sdk import CheckPlan, CheckPlanItem, FetcherApp
 from quantilica.cli.ui import expand_years_cli, get_console, setup_rich_logging
 from rich.panel import Panel
 from rich.progress import (
@@ -21,7 +21,7 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from .client import TseClient
+from .client import SyncPlanItem, TseClient
 from .constants import DATASETS, DEFAULT_OUTPUT, DEFAULT_YEAR_RANGE
 
 _DEFAULT_OUTPUT = Path(DEFAULT_OUTPUT)
@@ -124,6 +124,14 @@ def cmd_sync(
     force: Annotated[
         bool, typer.Option("--force", help="Re-baixar arquivos frescos")
     ] = False,
+    from_plan: Annotated[
+        Path | None,
+        typer.Option(
+            "--from-plan",
+            help="Baixar somente as entradas com ação 'download' de um plano "
+            "gerado por 'check' (ignora datasets/anos).",
+        ),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", help="Logs detalhados")] = False,
     dry_run: Annotated[
         bool,
@@ -134,9 +142,44 @@ def cmd_sync(
 ) -> None:
     """Baixar/atualizar dados do ODSele (tudo por padrão)."""
     setup_rich_logging(verbose, console=console)
+    client = TseClient()
+
+    if from_plan is not None:
+        try:
+            plan = CheckPlan.from_json(from_plan.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Plano inválido:[/red] {exc}")
+            raise typer.Exit(code=1) from None
+        items = []
+        for v in plan.items:
+            if v.action != "download":
+                continue
+            e = v.entry
+            spec = DATASETS.get(str(e.get("dataset", "")))
+            items.append(
+                SyncPlanItem(
+                    dataset=str(e.get("dataset", "")),
+                    dataset_name=spec.name if spec else str(e.get("dataset", "")),
+                    ano=int(e.get("ano", 0)),
+                    uf=e.get("uf"),
+                    filename=str(e.get("filename", "")),
+                    url=str(e.get("url", "")),
+                    target=output / str(e.get("filename", "")),
+                )
+            )
+        console.print(
+            f"[dim]Plano {from_plan}: {len(items)} entrada(s) com ação "
+            f"'download' de {len(plan.items)} verificada(s).[/dim]"
+        )
+        ok, failed = client.download_items(items, output)
+        if failed:
+            console.print(f"[yellow]⚠[/yellow]  {ok} OK · [red]{failed} falha(s)[/red]")
+        else:
+            console.print(f"[green]✓[/green]  [bold]{ok}[/bold] itens baixados.")
+        return
+
     anos = expand_years_cli(years, default_range=DEFAULT_YEAR_RANGE, console=console)
     selections = datasets if datasets else sorted(DATASETS)
-    client = TseClient()
 
     # Validação antecipada de nomes de dataset (anos são filtrados no sync).
     try:
@@ -217,6 +260,62 @@ def cmd_sync(
         )
 
 
+def cmd_check(
+    datasets: Annotated[
+        list[str] | None,
+        typer.Argument(help="Datasets a verificar. Omitir para verificar todos."),
+    ] = None,
+    years: Annotated[
+        list[str] | None,
+        typer.Option(
+            "-y",
+            "--years",
+            help="Anos (ex: 2022) ou intervalos (2020:2022).",
+        ),
+    ] = None,
+    output: Annotated[
+        Path,
+        typer.Option("-o", "--output", help="Diretório de saída"),
+    ] = _DEFAULT_OUTPUT,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Imprime o plano em JSON (para 'sync --from-plan').",
+        ),
+    ] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", help="Logs detalhados")] = False,
+) -> None:
+    """Verificar remoto × local sem baixar (plano de freshness)."""
+    setup_rich_logging(verbose, console=console)
+    anos = expand_years_cli(years, default_range=DEFAULT_YEAR_RANGE, console=console)
+    selections = datasets if datasets else sorted(DATASETS)
+    client = TseClient()
+
+    try:
+        for dataset in selections:
+            client.get_dataset(dataset)
+    except ValueError as exc:
+        console.print(f"[red]Erro:[/red] {exc}")
+        raise typer.Exit(code=1) from None
+
+    planned, skipped = client.plan_sync(selections, anos, output_dir=output)
+    verdicts = [client.check_item(item) for item in planned]
+    generated = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    plan = CheckPlan(
+        fetcher="tse-fetcher",
+        output_dir=str(output),
+        generated_at=generated,
+        items=[CheckPlanItem(**v) for v in verdicts],
+    )
+    if as_json:
+        print(plan.to_json())
+    else:
+        plan.render_table()
+    if skipped:
+        console.print(f"[dim]{skipped} par(es) ignorado(s) fora da cobertura.[/dim]")
+
+
 def cmd_info(
     dataset: Annotated[
         str,
@@ -247,4 +346,5 @@ def cmd_info(
 
 fetcher.attach_command(cmd_list, name="list")
 fetcher.attach_command(cmd_sync, name="sync")
+fetcher.attach_command(cmd_check, name="check")
 fetcher.attach_command(cmd_info, name="info")
