@@ -5,6 +5,11 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Alterado
+- `cli.py` protege o import do plugin; sem o host a CLI standalone sai com código 1 e orienta `quantilica install tse`.
+
 ## [0.1.0] - 2026-10-05
 
 ### Adicionado
