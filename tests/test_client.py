@@ -9,6 +9,7 @@ import pytest
 
 from tse_fetcher import SyncPlanItem
 from tse_fetcher.client import TseClient
+from tse_fetcher.constants import ALIASES, DATASETS, DatasetSpec
 
 
 class _RecordingHttp:
@@ -36,10 +37,41 @@ def client(tmp_path) -> tuple[TseClient, _RecordingHttp, list[Path]]:
 
 
 def test_list_datasets(client) -> None:
-    """list_datasets cobre os cinco datasets canônicos."""
+    """list_datasets cobre os quatro datasets canônicos."""
     c, _rec, _created = client
     datasets = {spec.key for spec in c.list_datasets()}
-    assert datasets == {"candidatos", "bens", "votacao", "receitas", "despesas"}
+    assert datasets == {"candidatos", "bens", "votacao", "prestacao_contas"}
+
+
+def test_aliases_legados_resolvidos(client) -> None:
+    """Aliases legados (receitas/despesas) resolvem para prestacao_contas."""
+    c, _rec, _created = client
+    assert set(ALIASES) == {"receitas", "despesas"}
+    for legado in ALIASES:
+        spec = c.get_dataset(legado)
+        assert spec.key == "prestacao_contas"
+        url = c.get_download_url(legado, 2024)
+        assert url.endswith(
+            "prestacao_contas/prestacao_de_contas_eleitorais_candidatos_2024.zip"
+        )
+
+
+def test_get_download_url_per_uf(client, monkeypatch) -> None:
+    """Dataset per_uf (sintético) gera URL com sufixo de UF."""
+    monkeypatch.setitem(
+        DATASETS,
+        "teste_uf",
+        DatasetSpec(
+            key="teste_uf",
+            name="Teste",
+            prefix="teste_uf",
+            first_year=2020,
+            per_uf=True,
+        ),
+    )
+    c, _rec, _created = client
+    url = c.get_download_url("teste_uf", 2022, uf="SP")
+    assert url.endswith("teste_uf/teste_uf_2022_SP.zip")
 
 
 def test_get_download_url_nacional(client) -> None:
@@ -50,13 +82,6 @@ def test_get_download_url_nacional(client) -> None:
         "https://cdn.tse.jus.br/estatistica/sead/odsele/"
         "consulta_cand/consulta_cand_2022.zip"
     )
-
-
-def test_get_download_url_per_uf(client) -> None:
-    """Datasets per_uf geram URL com sufixo de UF."""
-    c, _rec, _created = client
-    url = c.get_download_url("receitas", 2022, uf="SP")
-    assert url.endswith("receitas_candidato_2022_SP.zip")
 
 
 def test_get_download_url_uf_em_dataset_nacional_rejeitada(client) -> None:
@@ -143,10 +168,21 @@ def test_plan_sync_nacional(client, tmp_path) -> None:
     assert not (tmp_path / "consulta_cand_2022.zip").exists()
 
 
-def test_plan_sync_per_uf_expande_27_ufs(client, tmp_path) -> None:
-    """Dataset per_uf expande o plano para uma entrada por UF."""
+def test_plan_sync_per_uf_expande_27_ufs(client, tmp_path, monkeypatch) -> None:
+    """Dataset per_uf (sintético) expande o plano para uma entrada por UF."""
+    monkeypatch.setitem(
+        DATASETS,
+        "teste_uf",
+        DatasetSpec(
+            key="teste_uf",
+            name="Teste",
+            prefix="teste_uf",
+            first_year=2020,
+            per_uf=True,
+        ),
+    )
     c, rec, _created = client
-    items, skipped = c.plan_sync(["receitas"], [2022], output_dir=tmp_path)
+    items, skipped = c.plan_sync(["teste_uf"], [2022], output_dir=tmp_path)
     assert rec.calls == []
     assert skipped == 0
     assert len(items) == 27
@@ -155,9 +191,19 @@ def test_plan_sync_per_uf_expande_27_ufs(client, tmp_path) -> None:
     assert ufs[0] == "AC" and ufs[-1] == "TO"
     assert sorted(ufs) == list(ufs)  # ordem alfabética de UFS
     sp = next(item for item in items if item.uf == "SP")
-    assert sp.filename == "receitas_candidato_2022_SP.zip"
-    assert sp.url.endswith("receitas_candidato_2022_SP.zip")
+    assert sp.url.endswith("teste_uf/teste_uf_2022_SP.zip")
     assert sp.target.parent == tmp_path
+
+
+def test_plan_sync_alias_legado_e_deduplicado(client, tmp_path) -> None:
+    """Aliases legados resolvem e deduplicam (arquivo nacional único)."""
+    c, rec, _created = client
+    items, skipped = c.plan_sync(["receitas", "despesas"], [2022], tmp_path)
+    assert rec.calls == []
+    assert skipped == 0
+    assert len(items) == 1  # um único arquivo nacional
+    assert items[0].dataset == "prestacao_contas"
+    assert items[0].filename == "prestacao_de_contas_eleitorais_candidatos_2022.zip"
 
 
 def test_plan_sync_anos_fora_da_cobertura_contam_skipped(client, tmp_path) -> None:
@@ -167,12 +213,12 @@ def test_plan_sync_anos_fora_da_cobertura_contam_skipped(client, tmp_path) -> No
         ["receitas", "bens"], [2018, 2020], output_dir=tmp_path
     )
     assert rec.calls == []
-    # receitas não cobre 2018 (first_year=2020); bens cobre ambos.
+    # receitas (alias de prestacao_contas) não cobre 2018; bens cobre ambos.
     assert skipped == 1
     planned = {(item.dataset, item.ano) for item in items}
     assert ("bens", 2018) in planned
-    assert ("receitas", 2018) not in planned
-    assert ("receitas", 2020) in planned
+    assert ("prestacao_contas", 2020) in planned
+    assert not any(ano == 2018 for ds, ano in planned if ds != "bens")
 
 
 def test_plan_sync_dataset_desconhecido(client) -> None:

@@ -54,7 +54,8 @@ def test_list(capsys) -> None:
     assert _run_cli(["list"]) == 0
     out = capsys.readouterr().out
     assert "candidatos" in out
-    assert "receitas" in out
+    assert "receitas" in out  # alias legado listado como descontinuado
+    assert "prestacao_contas" in out
 
 
 def test_info(capsys) -> None:
@@ -98,13 +99,18 @@ def test_sync_intervalo_de_anos(monkeypatch, tmp_path) -> None:
 
 
 def test_sync_anos_fora_da_cobertura_sao_filtrados(monkeypatch, tmp_path) -> None:
-    """sync filtra anos anteriores ao recorte do dataset (per_uf incluído)."""
+    """sync filtra anos anteriores ao recorte do dataset."""
     fake = _with_fake_http(monkeypatch)
-    assert _run_cli(["sync", "receitas", "-y", "2018:2022", "-o", str(tmp_path)]) == 0
+    assert (
+        _run_cli(["sync", "prestacao_contas", "-y", "2018:2022", "-o", str(tmp_path)])
+        == 0
+    )
     urls = [url for url, _ in fake.calls]
-    assert any("receitas_candidato_2020_" in url for url in urls)
-    assert not any("receitas_candidato_2018" in url for url in urls)
-    assert not any("receitas_candidato_2019" in url for url in urls)
+    assert any(
+        "prestacao_de_contas_eleitorais_candidatos_2020.zip" in url for url in urls
+    )
+    assert not any("2018" in url for url in urls)
+    assert not any("2019" in url for url in urls)
 
 
 def test_sync_dry_run_nao_baixa(monkeypatch, tmp_path, capsys) -> None:
@@ -137,10 +143,24 @@ def test_sync_dry_run_sem_skipped(monkeypatch, tmp_path, capsys) -> None:
 
 def test_sync_dry_run_per_uf_e_skipped(monkeypatch, tmp_path, capsys) -> None:
     """sync --dry-run expande UFs e contabiliza pares fora da cobertura."""
+    from tse_fetcher.client import DATASETS
+    from tse_fetcher.constants import DatasetSpec
+
+    monkeypatch.setitem(
+        DATASETS,
+        "teste_uf",
+        DatasetSpec(
+            key="teste_uf",
+            name="Teste",
+            prefix="teste_uf",
+            first_year=2020,
+            per_uf=True,
+        ),
+    )
     fake = _with_fake_http(monkeypatch)
     assert (
         _run_cli(
-            ["sync", "receitas", "-y", "2018:2020", "-o", str(tmp_path), "--dry-run"]
+            ["sync", "teste_uf", "-y", "2018:2020", "-o", str(tmp_path), "--dry-run"]
         )
         == 0
     )

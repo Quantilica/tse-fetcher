@@ -24,6 +24,9 @@ class DatasetSpec:
     prefix: str
     first_year: int
     per_uf: bool = False
+    # Diretório remoto no CDN; None usa ``prefix`` (padrão ODSele antigo,
+    # em que diretório e prefixo de arquivo coincidem).
+    path: str | None = None
 
 
 DATASETS: dict[str, DatasetSpec] = {
@@ -45,20 +48,25 @@ DATASETS: dict[str, DatasetSpec] = {
         prefix="votacao_candidato_munzona",
         first_year=1996,
     ),
-    "receitas": DatasetSpec(
-        key="receitas",
-        name="Receitas de candidatos (prestação de contas)",
-        prefix="receitas_candidato",
+    # Desde 2020 o TSE unificou receitas e despesas num arquivo nacional
+    # único por ano (o portal "Prestação de Contas Eleitorais"); os antigos
+    # arquivos per_uf (ex: despesas_candidato_2020_RJ.zip) foram removidos
+    # do CDN e retornam 404.
+    "prestacao_contas": DatasetSpec(
+        key="prestacao_contas",
+        name="Prestação de contas eleitorais de candidatos (receitas e despesas)",
+        prefix="prestacao_de_contas_eleitorais_candidatos",
+        path="prestacao_contas",
         first_year=2020,
-        per_uf=True,
     ),
-    "despesas": DatasetSpec(
-        key="despesas",
-        name="Despesas de candidatos (prestação de contas)",
-        prefix="despesas_candidato",
-        first_year=2020,
-        per_uf=True,
-    ),
+}
+
+# Nomes legados aceitos em get_dataset/plan_sync/sync/download e resolvidos
+# para o dataset consolidado (compatibilidade com scripts e crons antigos).
+# Não fazem parte do catálogo (list/list_datasets/sync sem argumento).
+ALIASES: dict[str, str] = {
+    "receitas": "prestacao_contas",
+    "despesas": "prestacao_contas",
 }
 
 # Anos eleitorais: eleições federais (par) e municipais (ímpar) desde 1994.

@@ -9,6 +9,7 @@ from pathlib import Path
 from quantilica.core.http import HttpClient, is_remote_more_recent
 
 from .constants import (
+    ALIASES,
     BASE_URL,
     DATASETS,
     DEFAULT_OUTPUT,
@@ -79,7 +80,8 @@ class TseClient:
         Raises:
             ValueError: Se o dataset não existir.
         """
-        spec = DATASETS.get(dataset)
+        key = ALIASES.get(dataset, dataset)
+        spec = DATASETS.get(key)
         if spec is None:
             known = ", ".join(sorted(DATASETS))
             msg = f"Dataset desconhecido: {dataset!r}. Suportados: {known}"
@@ -108,7 +110,8 @@ class TseClient:
             msg = f"Dataset {dataset!r} não aceita UF (arquivo nacional único)."
             raise ValueError(msg)
         filename = _filename(spec, ano, uf)
-        return f"{self.base_url}/{spec.prefix}/{filename}"
+        remote_dir = spec.path or spec.prefix
+        return f"{self.base_url}/{remote_dir}/{filename}"
 
     def download(
         self,
@@ -160,12 +163,11 @@ class TseClient:
 
         Calcula a lista ordenada de arquivos elegíveis e a contagem de
         pares (dataset, ano) ignorados — fora dos anos eleitorais ou
-        anteriores ao primeiro ano coberto pelo dataset.
+        anteriores ao primeiro ano coberto pelo dataset. Aliases legados
+        (ex: ``receitas``) são resolvidos e deduplicados no mesmo plano.
 
         Args:
-            datasets (list[str]): Nomes canônicos de datasets.
-            anos (list[int]): Anos eleitorais desejados.
-            output_dir (Path | str): Diretório de saída.
+            datasets (list[str]): Nomes canônicos de datasets (ou aliases).
 
         Returns:
             tuple[list[SyncPlanItem], int]: Itens planejados e pares
@@ -174,7 +176,10 @@ class TseClient:
         Raises:
             ValueError: Se algum dataset for desconhecido.
         """
-        specs = {dataset: self.get_dataset(dataset) for dataset in datasets}
+        specs: dict[str, DatasetSpec] = {}
+        for dataset in datasets:
+            spec = self.get_dataset(dataset)
+            specs[spec.key] = spec  # aliases legados → dedup por chave real
 
         items: list[SyncPlanItem] = []
         skipped = 0

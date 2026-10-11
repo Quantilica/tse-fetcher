@@ -9,6 +9,11 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ### Alterado
 - `cli.py` protege o import do plugin; sem o host a CLI standalone sai com código 1 e orienta `quantilica install tse`.
+- Datasets `receitas` e `despesas` substituídos por `prestacao_contas` (arquivo nacional consolidado de receitas e despesas de candidatos): o TSE removeu do CDN os arquivos particionados por UF (ex: `despesas_candidato_2020_RJ.zip` → HTTP 404, centenas de falhas no cron diário). Nomes legados continuam aceitos como aliases no `.get_dataset`/`plan_sync`/`sync`/`download`, deduplicados para um único download nacional.
+- `DatasetSpec` ganha campo `path` (diretório remoto no CDN independente do prefixo do arquivo) para acomodar o novo layout `prestacao_contas`.
+
+### Corrigido
+- Sync completo (`quantilica tse sync`) não gera mais 404 em massa: todas as 19 URLs do plano padrão 2018–2026 verificadas como HTTP 200 no CDN.
 
 ## [0.1.0] - 2026-10-05
 

@@ -3,7 +3,7 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from .client import SyncPlanItem, TseClient
-from .constants import BASE_URL, DATASETS, DatasetSpec
+from .constants import ALIASES, BASE_URL, DATASETS, DatasetSpec
 
 try:
     __version__ = version("tse-fetcher")
@@ -15,6 +15,7 @@ __all__ = [
     "SyncPlanItem",
     "TseClient",
     "DATASETS",
+    "ALIASES",
     "DatasetSpec",
     "BASE_URL",
 ]

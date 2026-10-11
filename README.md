@@ -35,12 +35,15 @@ uv add tse-fetcher
 | `candidatos` | Candidaturas (consulta_cand) | `consulta_cand` | 1994 | não |
 | `bens` | Bens declarados por candidato | `bem_candidato` | 2006 | não |
 | `votacao` | Votação nominal por município/zona | `votacao_candidato_munzona` | 1996 | não |
-| `receitas` | Receitas de campanha (prestação de contas) | `receitas_candidato` | 2020 | sim |
-| `despesas` | Despesas de campanha (prestação de contas) | `despesas_candidato` | 2020 | sim |
+| `prestacao_contas` | Receitas e despesas de campanha (prestação de contas) | `prestacao_de_contas_eleitorais_candidatos` | 2020 | não |
 
-Datasets particionados por UF (receitas e despesas) geram **27 arquivos por
-ano eleitoral** (uma por UF). Use `--dry-run` para pré-visualizar o volume
-antes de baixar.
+Todos os datasets usam um arquivo nacional único por ano. Desde 2020 o TSE
+unificou receitas e despesas de candidatos no portal "Prestação de Contas
+Eleitorais"; os antigos arquivos particionados por UF (`receitas_candidato`,
+`despesas_candidato`) foram **removidos do CDN** (404). Os nomes legados
+`receitas` e `despesas` continuam aceitos como aliases de `prestacao_contas`
+(mas não aparecem no catálogo nem no sync completo). Use `--dry-run` para
+pré-visualizar o volume antes de baixar.
 
 ## Uso como biblioteca
 
@@ -56,12 +59,13 @@ print(client.get_download_url("candidatos", 2022))
 # Download com validação de frescor, gravação atômica e manifest SHA-256
 path = client.download("candidatos", 2022, output_dir="/data/tse")
 
-# Receitas por UF (dataset per_uf)
-path = client.download("receitas", 2022, uf="SP")
+# Prestação de contas consolidada (receitas e despesas, arquivo nacional;
+# aliases legados 'receitas' e 'despesas' também são aceitos)
+path = client.download("prestacao_contas", 2022, output_dir="/data/tse")
 
 # Pré-visualizar um plano de sync sem tocar na rede
-items, skipped = client.plan_sync(["receitas"], [2022])
-print(len(items), skipped)  # 27 arquivos (27 UFs), 0 pares ignorados
+items, skipped = client.plan_sync(["prestacao_contas"], [2022])
+print(len(items), skipped)  # 1 arquivo nacional, 0 pares ignorados
 ```
 
 ## CLI
@@ -78,7 +82,7 @@ tse-fetcher sync bens votacao -y 2022
 
 # Pré-visualizar o que seria baixado, sem tocar na rede (tabela Rich):
 tse-fetcher sync --dry-run
-tse-fetcher sync receitas despesas -y 2022:2026 --dry-run
+tse-fetcher sync prestacao_contas -y 2022:2026 --dry-run
 ```
 
 Verbos `sync` (download, idempotente e tudo por padrão), `list` (catálogo

@@ -22,7 +22,7 @@ from rich.progress import (
 from rich.table import Table
 
 from .client import SyncPlanItem, TseClient
-from .constants import DATASETS, DEFAULT_OUTPUT, DEFAULT_YEAR_RANGE
+from .constants import ALIASES, DATASETS, DEFAULT_OUTPUT, DEFAULT_YEAR_RANGE
 
 _DEFAULT_OUTPUT = Path(DEFAULT_OUTPUT)
 console = get_console()
@@ -102,6 +102,13 @@ def cmd_list() -> None:
         )
     console.print(table)
     console.print(f"[bold]Total:[/bold] {len(DATASETS)} datasets disponíveis.")
+    if ALIASES:
+        legados = ", ".join(sorted(ALIASES))
+        alvo = sorted(set(ALIASES.values()))
+        console.print(
+            f"[dim]Nomes legados (aceitos, mas descontinuados): "
+            f"{legados} → {'/'.join(alvo)}[/dim]"
+        )
 
 
 def cmd_sync(
