@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -129,7 +130,12 @@ def cmd_sync(
         typer.Option("-o", "--output", help="Diretório de saída"),
     ] = _DEFAULT_OUTPUT,
     force: Annotated[
-        bool, typer.Option("--force", help="Re-baixar arquivos frescos")
+        bool,
+        typer.Option(
+            "--force",
+            help="Ignora a checagem de frescor local (arquivo/sidecar) "
+            "e baixa todas as entradas selecionadas (útil com --from-plan)",
+        ),
     ] = False,
     from_plan: Annotated[
         Path | None,
@@ -178,7 +184,7 @@ def cmd_sync(
             f"[dim]Plano {from_plan}: {len(items)} entrada(s) com ação "
             f"'download' de {len(plan.items)} verificada(s).[/dim]"
         )
-        ok, failed = client.download_items(items, output)
+        ok, failed = client.download_items(items, output, force=force)
         if failed:
             console.print(f"[yellow]⚠[/yellow]  {ok} OK · [red]{failed} falha(s)[/red]")
         else:
@@ -291,6 +297,14 @@ def cmd_check(
             help="Imprime o plano em JSON (para 'sync --from-plan').",
         ),
     ] = False,
+    out: Annotated[
+        Path | None,
+        typer.Option(
+            "--out",
+            help="Grava o plano JSON neste arquivo (atômico) e imprime "
+            "só um resumo; prevalece sobre --json",
+        ),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", help="Logs detalhados")] = False,
 ) -> None:
     """Verificar remoto × local sem baixar (plano de freshness)."""
@@ -315,7 +329,20 @@ def cmd_check(
         generated_at=generated,
         items=[CheckPlanItem(**v) for v in verdicts],
     )
-    if as_json:
+    if out is not None:
+        tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")
+        try:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                tmp.write_text(plan.to_json(), encoding="utf-8")
+                os.replace(tmp, out)
+            finally:
+                tmp.unlink(missing_ok=True)
+        except OSError as exc:
+            console.print(f"[red]Falha ao gravar o plano em {out}: {exc}[/red]")
+            raise typer.Exit(code=1) from None
+        console.print(f"{plan.summary_line()} Plano gravado em {out}")
+    elif as_json:
         print(plan.to_json())
     else:
         plan.render_table()

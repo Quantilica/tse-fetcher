@@ -20,6 +20,7 @@ class _FakeHttp:
 
     def __init__(self) -> None:
         self.urls: list[str] = []
+        self.kwargs: list[dict] = []
         self.head_headers: dict[str, str] = {
             "Content-Length": "17",
             "Last-Modified": "Mon, 01 Jan 2024 00:00:00 GMT",
@@ -28,6 +29,7 @@ class _FakeHttp:
 
     def download_with_manifest(self, url, target, **kwargs):  # noqa: ANN001
         self.urls.append(url)
+        self.kwargs.append(kwargs)
         return target
 
     def head(self, url, **kwargs):  # noqa: ANN001, ANN002
@@ -195,3 +197,89 @@ def test_sync_from_plan_invalido_aborta(fake_http, tmp_path) -> None:
     assert result.exit_code == 1
     assert "Plano inválido" in result.output
     assert fake_http.urls == []
+
+
+def test_check_out_grava_plano_atomico(fake_http, tmp_path) -> None:
+    """check --out grava JSON válido, sem JSON no stdout."""
+    out = tmp_path / "sub" / "raw.json"
+    result = runner.invoke(
+        app, ["check", "bens", "-y", "2022", "-o", str(tmp_path), "--out", str(out)]
+    )
+    assert result.exit_code == 0, result.output
+    plan = CheckPlan.from_json(out.read_text(encoding="utf-8"))
+    assert plan.fetcher == "tse-fetcher"
+    assert len(plan.items) > 0
+    assert '"items"' not in result.output
+    assert "Plano gravado em" in result.output
+    assert [p.name for p in out.parent.iterdir()] == ["raw.json"]
+
+
+def test_check_out_prevalece_sobre_json(fake_http, tmp_path) -> None:
+    """--out prevalece sobre --json: nada de JSON no stdout."""
+    out = tmp_path / "raw.json"
+    result = runner.invoke(
+        app,
+        [
+            "check",
+            "bens",
+            "-y",
+            "2022",
+            "-o",
+            str(tmp_path),
+            "--json",
+            "--out",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists()
+    assert '"items"' not in result.output
+
+
+def test_check_out_em_diretorio_falha(fake_http, tmp_path) -> None:
+    """--out apontando para diretório existente encerra com exit 1."""
+    result = runner.invoke(
+        app,
+        ["check", "bens", "-y", "2022", "-o", str(tmp_path), "--out", str(tmp_path)],
+    )
+    assert result.exit_code == 1
+    assert "Falha ao gravar o plano" in result.output
+
+
+def _plano_reescrito(fake_http, tmp_path):  # noqa: ANN001, ANN202
+    raw = tmp_path / "raw.json"
+    check = runner.invoke(
+        app,
+        ["check", "bens", "-y", "2020:2022", "-o", str(tmp_path), "--out", str(raw)],
+    )
+    assert check.exit_code == 0, check.output
+    data = json.loads(raw.read_text(encoding="utf-8"))
+    data["items"][0]["action"] = "skip-up-to-date"
+    data["items"][0]["reason"] = "ingest verified"
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(data), encoding="utf-8")
+    return plan_file, data
+
+
+def test_sync_from_plan_force_repassa_force(fake_http, tmp_path) -> None:
+    """--force chega ao download_with_manifest; só itens download são baixados."""
+    plan_file, data = _plano_reescrito(fake_http, tmp_path)
+    result = runner.invoke(
+        app,
+        ["sync", "--from-plan", str(plan_file), "--force", "-o", str(tmp_path)],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(fake_http.urls) == len(data["items"]) - 1 > 0
+    assert data["items"][0]["entry"]["url"] not in fake_http.urls
+    assert all(kw.get("force") is True for kw in fake_http.kwargs)
+
+
+def test_sync_from_plan_sem_force_mantem_force_falso(fake_http, tmp_path) -> None:
+    """Sem --force, o download recebe force=False."""
+    plan_file, data = _plano_reescrito(fake_http, tmp_path)
+    result = runner.invoke(
+        app, ["sync", "--from-plan", str(plan_file), "-o", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.output
+    assert len(fake_http.urls) == len(data["items"]) - 1 > 0
+    assert all(kw.get("force") is False for kw in fake_http.kwargs)
