@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
-import os
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 from quantilica.cli.sdk import CheckPlan, CheckPlanItem, FetcherApp
 from quantilica.cli.ui import expand_years_cli, get_console, setup_rich_logging
+from quantilica.core.files import StorageError, write_text_atomic
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -330,20 +330,14 @@ def cmd_check(
         items=[CheckPlanItem(**v) for v in verdicts],
     )
     if out is not None:
-        tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")
         try:
-            out.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                tmp.write_text(plan.to_json(), encoding="utf-8")
-                os.replace(tmp, out)
-            finally:
-                tmp.unlink(missing_ok=True)
-        except OSError as exc:
+            write_text_atomic(out, plan.to_json())
+        except (OSError, StorageError) as exc:
             console.print(f"[red]Falha ao gravar o plano em {out}: {exc}[/red]")
             raise typer.Exit(code=1) from None
         console.print(f"{plan.summary_line()} Plano gravado em {out}")
     elif as_json:
-        print(plan.to_json())
+        console.print(plan.to_json(), markup=False, soft_wrap=True)
     else:
         plan.render_table()
     if skipped:
