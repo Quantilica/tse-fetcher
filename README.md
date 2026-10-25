@@ -15,7 +15,7 @@ Via hub Quantilica (recomendado — distribuído pelo índice estático PEP 503)
 quantilica install tse
 ```
 
-Para contribuir no repositório (ambiente de desenvolvimento do workspace):
+Para contribuir no repositório (ambiente de desenvolvimento local):
 
 ```bash
 uv sync
