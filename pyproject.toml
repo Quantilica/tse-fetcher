@@ -42,8 +42,18 @@ Issues = "https://github.com/Quantilica/tse-fetcher/issues"
 [project.scripts]
 tse-fetcher = "tse_fetcher.cli:main"
 
+[project.optional-dependencies]
+analysis = [
+    "duckdb>=1.0.0",
+    "polars>=1.0.0",
+    "quantilica-analytics>=0.5.0",
+]
+
 [project.entry-points."quantilica.fetchers"]
 tse = "tse_fetcher.plugin:app"
+
+[project.entry-points."quantilica.lake"]
+tse = "tse_fetcher.lake:converter"
 
 [dependency-groups]
 dev = [

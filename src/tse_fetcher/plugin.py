@@ -24,6 +24,7 @@ from rich.table import Table
 
 from .client import SyncPlanItem, TseClient
 from .constants import ALIASES, DATASETS, DEFAULT_OUTPUT, DEFAULT_YEAR_RANGE
+from .storage import DataRepository
 
 _DEFAULT_OUTPUT = Path(DEFAULT_OUTPUT)
 console = get_console()
@@ -55,19 +56,17 @@ def tse_path_builder(
     entry: dict[str, Any],
     last_modified: dt.date | None = None,
 ) -> Path:
-    """Montar o caminho destino de um arquivo (layout plano do CDN).
+    """Montar o caminho destino de um arquivo usando DataRepository.
 
     Args:
         output_dir (Path): Diretório de saída.
-        entry (dict[str, Any]): Entrada de dataset (chave ``id`` com o nome
-            canônico do arquivo).
-        last_modified (dt.date | None): Ignorado; o TSE não publica
-            timestamps no nome do arquivo.
+        entry (dict[str, Any]): Entrada de dataset.
+        last_modified (dt.date | None): Data de modificação, se informada.
 
     Returns:
-        Path: Caminho destino ``{output_dir}/{id}``.
+        Path: Caminho destino estruturado sob {output_dir}/{group}/...
     """
-    return output_dir / str(entry.get("id", "unknown"))
+    return DataRepository(output_dir).path_for_entry(entry, last_modified=last_modified)
 
 
 fetcher = FetcherApp(
@@ -376,3 +375,20 @@ fetcher.attach_command(cmd_list, name="list")
 fetcher.attach_command(cmd_sync, name="sync")
 fetcher.attach_command(cmd_check, name="check")
 fetcher.attach_command(cmd_info, name="info")
+
+
+def convert(
+    input_dir: Path,
+    lake_dir: Path,
+    *,
+    dataset: list[str] | None = None,
+    force: bool = False,
+) -> Any:
+    """Converte arquivos brutos do TSE para o lake Hive (Parquet)."""
+    from tse_fetcher import lake
+
+    return lake.converter.convert(input_dir, lake_dir, datasets=dataset, force=force)
+
+
+fetcher.command_convert(convert)
+fetcher.command_pipeline(convert)
