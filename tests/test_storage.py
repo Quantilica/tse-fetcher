@@ -15,8 +15,9 @@ def test_storage_path_for_entry_explicit(tmp_path: Path) -> None:
         "prefix": "consulta_cand",
         "ano": 2022,
     }
+    today_str = dt.date.today().strftime("%Y%m%d")
     path = repo.path_for_entry(entry)
-    expected = tmp_path / "tse" / "candidatos" / "consulta_cand_2022.zip"
+    expected = tmp_path / "tse" / "candidatos" / f"consulta_cand_2022@{today_str}.zip"
     assert path == expected
 
 
@@ -42,8 +43,9 @@ def test_storage_path_for_entry_with_stamp(tmp_path: Path) -> None:
 def test_storage_path_for_entry_from_id(tmp_path: Path) -> None:
     repo = DataRepository(tmp_path / "tse")
     entry = {"id": "consulta_cand_2022.zip"}
+    today_str = dt.date.today().strftime("%Y%m%d")
     path = repo.path_for_entry(entry)
-    expected = tmp_path / "tse" / "candidatos" / "consulta_cand_2022.zip"
+    expected = tmp_path / "tse" / "candidatos" / f"consulta_cand_2022@{today_str}.zip"
     assert path == expected
 
 
@@ -56,4 +58,17 @@ def test_storage_path_for_dataset_helper(tmp_path: Path) -> None:
         last_modified=dt.date(2024, 10, 1),
     )
     expected = tmp_path / "tse" / "bens-candidatos" / "bem_candidato_2024@20241001.zip"
+    assert path == expected
+
+
+def test_path_for_entry_fallback_timestamp(tmp_path: Path) -> None:
+    repo = DataRepository(tmp_path / "tse")
+    entry = {
+        "group": "candidatos",
+        "prefix": "consulta_cand",
+        "ano": 2022,
+    }
+    today_str = dt.date.today().strftime("%Y%m%d")
+    path = repo.path_for_entry(entry, last_modified=None)
+    expected = tmp_path / "tse" / "candidatos" / f"consulta_cand_2022@{today_str}.zip"
     assert path == expected

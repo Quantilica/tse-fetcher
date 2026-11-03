@@ -87,11 +87,13 @@ class DataRepository(BaseDataRepository):
             parts.append(str(uf).lower())
         partition = "-".join(parts) if parts else None
 
+        timestamp = last_modified or dt.date.today()
+
         filename = build_stamped_filename(
             prefix,
             partition,
             ext="zip",
-            timestamp=last_modified,
+            timestamp=timestamp,
         )
         return self.dataset_path(group, filename)
 
