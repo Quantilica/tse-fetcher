@@ -79,7 +79,7 @@ fetcher = FetcherApp(
     path_builder=tse_path_builder,
     default_output=_DEFAULT_OUTPUT,
     build_default_commands=False,  # list/sync próprios (anos eleitorais e UF).
-    freshness_policy=FreshnessPolicy.REMOTE_ONLY,
+    freshness_policy=FreshnessPolicy.HEAD_OR_MANIFEST,
 )
 
 app = fetcher.app
