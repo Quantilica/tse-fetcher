@@ -31,7 +31,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "quantilica-core>=0.10.0",
+    "quantilica-core>=0.16.0",
 ]
 
 [project.urls]
@@ -46,7 +46,7 @@ tse-fetcher = "tse_fetcher.cli:main"
 analysis = [
     "duckdb>=1.0.0",
     "polars>=1.0.0",
-    "quantilica-analytics>=0.5.0",
+    "quantilica-analytics>=0.9.0",
 ]
 
 [project.entry-points."quantilica.fetchers"]
@@ -63,7 +63,7 @@ dev = [
     # typer.testing. Nunca em [project].dependencies — o plugin consome o que o
     # host já traz. Piso = 0.10.0, primeira versão com CheckPlan/check/from-plan
     # (mesma assinatura usada aqui).
-    "quantilica-cli>=0.10.0",
+    "quantilica-cli>=0.15.0",
     "typer>=0.15.0",
     "rich>=13.0.0",
 ]
