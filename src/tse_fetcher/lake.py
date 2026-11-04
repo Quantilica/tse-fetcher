@@ -320,7 +320,8 @@ class LakeConverter:
                                 )
                                 continue
                             part_vals = {"ano": ano, "uf": uf}
-                            key = composite_file_key(path, member.stem).lower()
+                            member_name = member.stem
+                            key = composite_file_key(path, member_name).lower()
                             written = writer.write_duckdb(
                                 member,
                                 partitions=part_vals,
