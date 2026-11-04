@@ -24,10 +24,10 @@ from rich.progress import (
 from rich.table import Table
 
 from .client import SyncPlanItem, TseClient
-from .constants import ALIASES, DATASETS, DEFAULT_OUTPUT, DEFAULT_YEAR_RANGE
+from .constants import ALIASES, DATASETS, DEFAULT_YEAR_RANGE
 from .storage import DataRepository
 
-_DEFAULT_OUTPUT = Path(DEFAULT_OUTPUT)
+_DEFAULT_OUTPUT = Path("/data/tse")
 console = get_console()
 
 # Catálogo de grupos no schema do SDK (``FetcherApp.groups_dict``).
@@ -387,7 +387,13 @@ def convert(
     force: bool = False,
 ) -> Any:
     """Converte arquivos brutos do TSE para o lake Hive (Parquet)."""
-    from tse_fetcher import lake
+    try:
+        from tse_fetcher import lake
+    except ImportError as exc:
+        raise ImportError(
+            "Conversão para o lake requer o extra 'analysis'. "
+            "Instale com: quantilica install tse --extra analysis"
+        ) from exc
 
     return lake.converter.convert(input_dir, lake_dir, datasets=dataset, force=force)
 
