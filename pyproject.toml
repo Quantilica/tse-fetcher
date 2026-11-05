@@ -57,6 +57,8 @@ tse = "tse_fetcher.lake:converter"
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.400",
+    "pytest-cov>=7.1",
     "ruff>=0.9.0",
     "pytest>=8.0.0",
     # Só para os testes: tests/test_plugin.py exercita o FetcherApp do host e
@@ -84,3 +86,15 @@ packages = ["src/tse_fetcher"]
 [build-system]
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
+
+[tool.pyright]
+typeCheckingMode = "basic"
+include = ["src"]
+
+[tool.coverage.run]
+source = ["tse_fetcher"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
