@@ -9,7 +9,8 @@ from typing import Annotated, Any
 import typer
 from quantilica.cli.sdk import CheckPlan, CheckPlanItem, FetcherApp
 from quantilica.cli.ui import expand_years_cli, get_console, setup_rich_logging
-from quantilica.core.files import StorageError, write_text_atomic
+from quantilica.core.exceptions import StorageError
+from quantilica.core.files import write_text_atomic
 from quantilica.core.sync import FreshnessPolicy
 from rich.panel import Panel
 from rich.progress import (
