@@ -185,3 +185,19 @@ def test_zip_inherits_uf_partition(
         / "votacao_secao_2022-sp__votacao_secao.parquet"
     )
     assert sp_parquet.is_file()
+
+
+def test_zip_ignora_leiame_txt(tmp_path: Path, lake_converter: LakeConverter) -> None:
+    """Documentacao (LEIAME.txt) no ZIP nao vira membro de dados."""
+    raw_dir = tmp_path / "raw"
+    lake_dir = tmp_path / "lake"
+    secao_dir = raw_dir / "votacao-secao"
+    secao_dir.mkdir(parents=True)
+    zip_path = secao_dir / "votacao_secao_2022-sp@20260814.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("votacao_secao.csv", "ano_eleicao;cd_cargo;qt_votos\n2022;1;150\n")
+        zf.writestr("LEIAME.txt", "Descricao dos campos\n")
+
+    res = lake_converter.convert(raw_dir, lake_dir)
+    assert res.converted == 1
+    assert not res.errors

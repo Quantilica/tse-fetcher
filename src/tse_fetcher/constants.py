@@ -5,6 +5,7 @@ Datasets no CDN de estatísticas eleitorais (SEAD/ODSele).
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
 
 BASE_URL = "https://cdn.tse.jus.br/estatistica/sead/odsele"
@@ -69,8 +70,20 @@ ALIASES: dict[str, str] = {
     "despesas": "prestacao_contas",
 }
 
-# Anos eleitorais: eleições federais (par) e municipais (ímpar) desde 1994.
-ELECTION_YEARS: tuple[int, ...] = tuple(range(1994, 2027, 2))
+FIRST_ELECTION_YEAR = 1994
+
+
+def election_years(today: dt.date | None = None) -> tuple[int, ...]:
+    """Anos eleitorais (pares) de 1994 até o último ano par já iniciado.
+
+    O ano par seguinte entra quando o calendário chegar nele (2028 em 2028).
+    """
+    ano = (today or dt.date.today()).year
+    return tuple(range(FIRST_ELECTION_YEAR, ano - ano % 2 + 1, 2))
+
+
+# Anos eleitorais: pares desde 1994, calculados a partir da data corrente.
+ELECTION_YEARS: tuple[int, ...] = election_years()
 
 UFS: tuple[str, ...] = (
     "AC",

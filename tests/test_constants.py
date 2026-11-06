@@ -7,6 +7,7 @@ from tse_fetcher.constants import (
     ELECTION_YEARS,
     UFS,
     DatasetSpec,
+    election_years,
 )
 
 
@@ -62,3 +63,14 @@ def test_ufs() -> None:
     assert len(set(UFS)) == 27
     assert "SP" in UFS
     assert "DF" in UFS
+
+
+def test_anos_eleitorais_seguem_a_data() -> None:
+    """O ano par entra quando chega; ids até 2026 não mudam."""
+    import datetime as dt
+
+    assert election_years(dt.date(2026, 11, 5))[-1] == 2026
+    assert election_years(dt.date(2027, 6, 1))[-1] == 2026
+    assert election_years(dt.date(2028, 1, 1))[-1] == 2028
+    assert election_years(dt.date(2028, 1, 1))[:-1] == tuple(range(1994, 2027, 2))
+    assert ELECTION_YEARS[0] == 1994

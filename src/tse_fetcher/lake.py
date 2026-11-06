@@ -298,7 +298,9 @@ class LakeConverter:
                         all_members = sorted(
                             m
                             for m in Path(tmp).rglob("*")
-                            if m.is_file() and m.suffix.lower() in {".csv", ".txt"}
+                            if m.is_file()
+                            and m.suffix.lower() in {".csv", ".txt"}
+                            and not m.stem.lower().startswith(("leia", "readme"))
                         )
                         if not all_members and extracted.is_file():
                             all_members = [extracted]
