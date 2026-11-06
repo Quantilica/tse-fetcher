@@ -7,6 +7,8 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+## [0.3.2] - 2026-11-06
+
 ### Corrigido
 - Anos eleitorais deixam de ser uma lista fixa até 2026: são calculados a partir da data (o ano par seguinte, como 2028, entra quando chegar), sem mudar os ids atuais.
 - `lake`: arquivos de documentação dentro dos ZIPs (`LEIAME*`, `readme*`) não são lidos como dados.
