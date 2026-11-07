@@ -201,3 +201,31 @@ def test_zip_ignora_leiame_txt(tmp_path: Path, lake_converter: LakeConverter) ->
     res = lake_converter.convert(raw_dir, lake_dir)
     assert res.converted == 1
     assert not res.errors
+
+
+def test_quebra_de_linha_dentro_de_aspas(
+    tmp_path: Path, lake_converter: LakeConverter
+) -> None:
+    """Descricao de bem com quebra de linha entre aspas continua um registro so."""
+    raw_dir = tmp_path / "raw"
+    lake_dir = tmp_path / "lake"
+    bens_dir = raw_dir / "bens-candidatos"
+    bens_dir.mkdir(parents=True)
+    linhas = ['"ANO_ELEICAO";"SG_UF";"DS_BEM_CANDIDATO";"VR_BEM_CANDIDATO"']
+    # muitas linhas simples antes, para o erro nao depender da amostra do sniffer
+    linhas += [f'2022;"RN";"BEM {i}";"1,00"' for i in range(3000)]
+    linhas += ['2022;"RN";"APTO EM ED. MOACYR MAIA,\nAV. APODI, 500";"122259,61"']
+    linhas += ['2022;"RN";"CASA COM ""VARANDA""";"10,00"']
+    zip_path = bens_dir / "bem_candidato_2022@20261106.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("bem_candidato_2022_RN.csv", "\n".join(linhas).encode("latin-1"))
+
+    res = lake_converter.convert(raw_dir, lake_dir)
+    assert not res.errors, res.errors
+    assert res.converted == 1
+    (parquet,) = (lake_dir / "tse" / "bens-candidatos").rglob("*.parquet")
+    df = pl.read_parquet(parquet)
+    assert df.height == 3002
+    descr = df["ds_bem_candidato"].to_list()
+    assert descr[-2] == "APTO EM ED. MOACYR MAIA,\nAV. APODI, 500"
+    assert descr[-1] == 'CASA COM "VARANDA"'

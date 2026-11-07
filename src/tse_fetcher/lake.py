@@ -45,6 +45,17 @@ from tse_fetcher import __version__
 
 SOURCE_ID = "tse"
 
+# Dialeto dos CSVs do TSE: campos entre aspas duplas, aspa interna dobrada e
+# quebra de linha dentro do campo (descricao de bem, historico de prestacao de
+# contas). DuckDB so le campo que atravessa linhas com uma thread.
+_CSV_DIALECT = {
+    "separator": ";",
+    "encoding": "latin-1",
+    "quote": '"',
+    "escape": '"',
+    "parallel": False,
+}
+
 ALL_DATASETS = [
     "candidatos",
     "bens-candidatos",
@@ -283,9 +294,8 @@ class LakeConverter:
                         path,
                         partitions=part_vals,
                         file_key_name=key,
-                        separator=";",
-                        encoding="latin-1",
                         converter=f"tse-fetcher {__version__}",
+                        **_CSV_DIALECT,
                     )
                     if written.status == "skipped":
                         result.skipped += 1
@@ -329,9 +339,8 @@ class LakeConverter:
                                 partitions=part_vals,
                                 file_key_name=key,
                                 src_origin=path,
-                                separator=";",
-                                encoding="latin-1",
                                 converter=f"tse-fetcher {__version__}",
+                                **_CSV_DIALECT,
                             )
                             if written.status == "skipped":
                                 result.skipped += 1
