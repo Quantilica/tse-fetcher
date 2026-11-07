@@ -7,6 +7,8 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+## [0.3.3] - 2026-11-07
+
 ### Corrigido
 - `lake`: campos entre aspas com quebra de linha dentro (descrição de bem do candidato, textos da prestação de contas) encerravam o registro no meio e a conversão falhava com `CSV Error on Line`. Agora o CSV é lido com aspas duplas como delimitador e escape, e a quebra fica preservada no valor. A leitura desses arquivos passa a usar uma thread só.
 
