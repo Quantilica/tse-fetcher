@@ -1,9 +1,10 @@
 {
   "fonte": "tse",
   "dataset": "prestacao-contas",
-  "gerado_em": "2026-11-10T14:03:46+00:00",
+  "gerado_em": "2026-11-10T22:48:04+00:00",
   "particoes": [
     "ano",
+    "tabela",
     "uf"
   ],
   "colunas": [
@@ -380,6 +381,66 @@
       ]
     },
     {
+      "nome": "nr_cpf_cnpj_doador_originario",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_doador_originario",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_doador_originario_rfb",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "tp_doador_originario",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_cnae_doador_originario",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_cnae_doador_originario",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sq_receita",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "dt_receita",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_receita",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "vr_receita",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
       "nome": "cd_fonte_receita",
       "tipos": [
         "string"
@@ -542,30 +603,6 @@
       ]
     },
     {
-      "nome": "sq_receita",
-      "tipos": [
-        "string"
-      ]
-    },
-    {
-      "nome": "dt_receita",
-      "tipos": [
-        "string"
-      ]
-    },
-    {
-      "nome": "ds_receita",
-      "tipos": [
-        "string"
-      ]
-    },
-    {
-      "nome": "vr_receita",
-      "tipos": [
-        "string"
-      ]
-    },
-    {
       "nome": "ds_natureza_recurso_estimavel",
       "tipos": [
         "string"
@@ -582,43 +619,7 @@
       "tipos": [
         "string"
       ]
-    },
-    {
-      "nome": "nr_cpf_cnpj_doador_originario",
-      "tipos": [
-        "string"
-      ]
-    },
-    {
-      "nome": "nm_doador_originario",
-      "tipos": [
-        "string"
-      ]
-    },
-    {
-      "nome": "nm_doador_originario_rfb",
-      "tipos": [
-        "string"
-      ]
-    },
-    {
-      "nome": "tp_doador_originario",
-      "tipos": [
-        "string"
-      ]
-    },
-    {
-      "nome": "cd_cnae_doador_originario",
-      "tipos": [
-        "string"
-      ]
-    },
-    {
-      "nome": "ds_cnae_doador_originario",
-      "tipos": [
-        "string"
-      ]
     }
   ],
-  "arquivos": 4
+  "arquivos": 8
 }

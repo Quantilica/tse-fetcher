@@ -9,10 +9,10 @@ dataset:
   licenca: "Creative Commons Attribution (CC BY), conforme os conjuntos no portal de dados abertos do TSE: http://www.opendefinition.org/licenses/cc-by. Nenhuma restrição de coleta ou de redistribuição foi encontrada nas páginas dos conjuntos."
   periodicidade: "não informado pela fonte (o conjunto não declara frequência de atualização; cada arquivo traz a data de geração)"
   cobertura: {inicio: "2020", fim: 2026}
-  unidade: "um lançamento de receita, de doador originário, de despesa contratada ou de despesa paga (o tipo depende do arquivo de origem, que não é gravado como coluna)"
+  unidade: "um lançamento de receita, de doador originário, de despesa contratada ou de despesa paga (o tipo é dado pela partição `tabela`)"
   granularidade: {espacial: "candidatura (com UF); o doador e o fornecedor trazem UF e município próprios", temporal: "lançamento, com data da receita/despesa"}
   formato_bruto: "ZIP nacional por ano com 4 famílias de CSV (`receitas_candidatos`, `receitas_candidatos_doador_originario`, `despesas_contratadas_candidatos`, `despesas_pagas_candidatos`), cada uma com um arquivo por UF, `BR` e `BRASIL`, mais quatro `leiame_*.pdf`; CSV em Latin-1, separador ponto e vírgula, campos entre aspas duplas"
-  lake: {estado: convertido, particoes: ["ano", "uf"], chave: [], colunas: 102}
+  lake: {estado: convertido, particoes: ["ano", "tabela", "uf"], chave: [], colunas: 102}
   unidades_de_medida: {vr_receita: "R$ (texto com vírgula decimal)", vr_despesa_contratada: "R$ (texto com vírgula decimal)", vr_pagto_despesa: "R$ (texto com vírgula decimal)"}
   dados_pessoais:
     - {coluna: "nr_cpf_candidato", categoria: "CPF (`-4` nos arquivos conferidos de 2026)"}
@@ -41,7 +41,7 @@ dataset:
 
 ## Resumo
 
-Prestação de contas de campanha dos candidatos, publicada pelo TSE como um ZIP nacional por ano com quatro famílias de arquivos: receitas, doadores originários das receitas, despesas contratadas e despesas pagas. O conversor lê todos num único dataset, o que dá um esquema de 102 colunas em que cada arquivo ocupa só as suas (60, 23, 53 e 28 colunas). Serve para totalizar o que as campanhas arrecadaram e gastaram, por candidato, partido, doador ou fornecedor.
+Prestação de contas de campanha dos candidatos, publicada pelo TSE como um ZIP nacional por ano com quatro famílias de arquivos: receitas, doadores originários das receitas, despesas contratadas e despesas pagas. O conversor grava os quatro num único dataset, separados pela partição `tabela` (`receitas`, `doador-originario`, `despesas-contratadas`, `despesas-pagas`); cada tabela tem só as suas colunas (60, 23, 53 e 28), e o esquema de referência é a união delas (102). Serve para totalizar o que as campanhas arrecadaram e gastaram, por candidato, partido, doador ou fornecedor.
 
 ## Ficha técnica
 
@@ -59,7 +59,7 @@ Prestação de contas de campanha dos candidatos, publicada pelo TSE como um ZIP
 | Granularidade | espacial: candidatura (com UF); o doador e o fornecedor trazem UF e município próprios; temporal: lançamento, com data da receita/despesa |
 | Formato bruto | ZIP nacional por ano com 4 famílias de CSV (`receitas_candidatos`, `receitas_candidatos_doador_originario`, `despesas_contratadas_candidatos`, `despesas_pagas_candidatos`), cada uma com um arquivo por UF, `BR` e `BRASIL`, mais quatro `leiame_*.pdf`; CSV em Latin-1, separador ponto e vírgula, campos entre aspas duplas |
 | Estado no lake | convertido |
-| Partições | `ano`, `uf` |
+| Partições | `ano`, `tabela`, `uf` |
 | Chave | — |
 | Colunas | 102 |
 | Unidades de medida | `vr_receita`: R$ (texto com vírgula decimal); `vr_despesa_contratada`: R$ (texto com vírgula decimal); `vr_pagto_despesa`: R$ (texto com vírgula decimal) |
@@ -84,7 +84,7 @@ Prestação de contas de campanha dos candidatos, publicada pelo TSE como um ZIP
 
 ## Variáveis
 
-Descrições dos quatro `leiame_*.pdf` oficiais do TSE; a coluna Período diz em quais famílias a coluna existe. Onde o LEIAME não define a variável, a célula diz "não informado pela fonte". Todos os valores chegam ao lake como texto.
+Descrições dos quatro `leiame_*.pdf` oficiais do TSE; a coluna Período diz em quais tabelas (partição `tabela`) a coluna existe: `receitas`, `doador-originario` (doador originário), `despesas-contratadas` e `despesas-pagas`. Onde o LEIAME não define a variável, a célula diz "não informado pela fonte". Todos os valores chegam ao lake como texto.
 
 | Coluna no lake | Na fonte | Tipo | Descrição | Unidade / códigos | Período |
 |---|---|---|---|---|---|
@@ -193,15 +193,15 @@ Descrições dos quatro `leiame_*.pdf` oficiais do TSE; a coluna Período diz em
 
 ## No lake
 
-- Dataset `tse/prestacao-contas`, particionado por `ano` e `uf`, um Parquet por CSV de origem. O nome do Parquet guarda a família (`...__receitas_candidatos_2026_ac.parquet`), mas a família **não é uma coluna**.
-- `ano` e `uf` vêm do nome do membro; o `BR` vai para `uf=br` e o `BRASIL` de uma família só é lido se o ZIP não tiver os arquivos por UF dessa mesma família (então vai para `uf=__HIVE_DEFAULT_PARTITION__`). A decisão é por família: `receitas_candidatos` e `receitas_candidatos_doador_originario` não se misturam.
+- Dataset `tse/prestacao-contas`, particionado por `ano`, `tabela` e `uf` (nessa ordem: `ano=2026/tabela=receitas/uf=ac/`), um Parquet por CSV de origem. A ordem põe `tabela` antes de `uf` para que uma tabela de todas as UFs seja um glob simples (`ano=2026/tabela=receitas/*/*.parquet`) e cada diretório `tabela=` tenha um esquema só.
+- `ano` e `uf` vêm do nome do membro; `tabela` vem do prefixo dele: `receitas_candidatos` (`receitas`), `receitas_candidatos_doador_originario` (`doador-originario`), `despesas_contratadas_candidatos` (`despesas-contratadas`) e `despesas_pagas_candidatos` (`despesas-pagas`). Prefixo desconhecido não é convertido e vira erro no resultado. O `BR` vai para `uf=br` e o `BRASIL` de uma tabela só é lido se o ZIP não tiver os arquivos por UF dessa mesma tabela (então vai para `uf=__HIVE_DEFAULT_PARTITION__`). A decisão é por tabela: `receitas` e `doador-originario` não se misturam.
 - Todas as colunas são texto; valores em reais com vírgula decimal. Leitura em Latin-1 com campos entre aspas e quebra de linha; nas amostras o lake tem tantas linhas quanto registros no CSV (3.005, 474, 22.427 e 23.061 nos quatro membros do Acre de 2026).
-- O esquema de referência (`prestacao-contas.schema.json`) tem 102 colunas, união das quatro famílias, gerado de uma conversão de amostras do Acre de 2026.
+- O esquema de referência (`prestacao-contas.schema.json`) é um só por dataset: tem 102 colunas, a união das quatro tabelas, gerado de uma conversão dos membros do Acre e do `BR` de 2026. Ele não diz qual coluna é de qual tabela; isso está na coluna Período do dicionário acima. Contagem de colunas por partição `tabela` na conversão: 60 (`receitas`), 23 (`doador-originario`), 53 (`despesas-contratadas`) e 28 (`despesas-pagas`).
 
 ## Cuidados de uso
 
 - **Dupla contagem (corrigida; lake gerado até a versão 0.3.3 ainda tem).** O ZIP traz um CSV por UF, o `BR` (registros de âmbito nacional, quando existe) e o `BRASIL` (consolidado que repete as UFs e o `BR`). O conversor atual não lê o `BRASIL` quando o ZIP tem os arquivos por UF: lê as UFs (`uf=<sigla>`) e o `BR` (`uf=br`, com `sg_uf` = `BR`); se o ZIP só tiver o `BRASIL`, ele é lido e vai para `uf=__HIVE_DEFAULT_PARTITION__`. Ao descartar o `BRASIL`, o conversor confere o número de linhas dele com a soma das UFs e do `BR`; se divergir, registra um aviso com as três contagens e mantém só as UFs e o `BR`. Assim somar o lake inteiro conta cada linha uma vez. Um lake gerado antes da correção tem os Parquets do `BRASIL` em `uf=__HIVE_DEFAULT_PARTITION__` e as linhas em dobro: apague `tse/prestacao-contas/` e reconverta (veja o `CHANGELOG.md`). Padrão de nomes conferido no ZIP de 2026: `<família>_2026_<UF>.csv`, `<família>_2026_BR.csv` e `<família>_2026_BRASIL.csv` para cada uma das quatro famílias. A contagem de linhas dos arquivos inteiros não foi conferida; a regra é a mesma dos outros datasets.
-- **Quatro tabelas num dataset.** Receitas, doadores originários, despesas contratadas e despesas pagas têm colunas e significados diferentes, e o lake não grava a família numa coluna. Ao ler com `union_by_name`, identifique a família pela coluna preenchida (`vr_receita` só nas receitas e nos doadores originários, `vr_despesa_contratada`, `vr_pagto_despesa`) ou pelo nome do arquivo (`input_file_name`/`include_file_paths`). Somar `vr_receita` com as colunas de despesa mistura conceitos.
+- **Quatro tabelas num dataset, separadas pela partição `tabela`.** Receitas, doadores originários, despesas contratadas e despesas pagas têm colunas e significados diferentes. Leia uma tabela por vez (`tabela=receitas` etc.); ler as quatro juntas exige `union_by_name`/`how="diagonal"` e dá as 102 colunas, com nulos nas que não são da tabela. Somar `vr_receita` com as colunas de despesa mistura conceitos. Até a versão 0.3.3 não havia a partição, e a tabela só se distinguia pelo nome do arquivo ou pela coluna preenchida; o lake antigo precisa ser refeito (veja o `CHANGELOG.md`).
 - **Despesa contratada não é despesa paga.** As duas famílias descrevem etapas diferentes do mesmo gasto; não as some.
 - **Doador originário.** Cada linha dessa família refere-se a uma receita (`sq_receita`) e detalha quem deu o dinheiro originalmente; somar receitas e doadores originários conta a mesma verba duas vezes.
 - **Marcadores da fonte ficam como texto, não viram nulo. Exemplos: o CPF do candidato vem `-4` e o do fornecedor pode vir `-1` nas amostras de 2026.
@@ -210,13 +210,13 @@ Descrições dos quatro `leiame_*.pdf` oficiais do TSE; a coluna Período diz em
 
 ## Exemplos
 
-Total de receitas de campanha de 2026 por partido, lendo só a família `receitas_candidatos` (o arquivo é escolhido pelo nome, já que a família não é coluna):
+Total de receitas de campanha de 2026 por partido (só a tabela `receitas`, todas as UFs e o `BR`):
 
 ```python
 import polars as pl
 
 receitas = pl.scan_parquet(
-    "lake/tse/prestacao-contas/ano=2026/*/*__receitas_candidatos_2026_*.parquet"
+    "lake/tse/prestacao-contas/ano=2026/tabela=receitas/*/*.parquet"
 )
 resumo = (
     receitas.with_columns(

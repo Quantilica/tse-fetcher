@@ -23,6 +23,11 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 Depois converta de novo esses datasets. Os outros datasets (`votacao-secao`, `detalhe-votacao-munzona`, `detalhe-votacao-secao`, `eleitorado`, `motivo-cassacao`, `vagas`, `boletim-urna`) não precisam ser refeitos.
 
+### Alterado
+- **Mudança incompatível em `prestacao-contas`:** o dataset ganha a partição `tabela`, e as chaves de partição passam de `[ano, uf]` para `[ano, tabela, uf]` (`ano=2026/tabela=receitas/uf=ac/`). O id do dataset não muda. As quatro tabelas do ZIP, que tinham colunas diferentes e se misturavam num esquema de 102 colunas, agora ficam em partições próprias, derivadas do prefixo do nome do membro: `receitas_candidatos` (`receitas`), `receitas_candidatos_doador_originario` (`doador-originario`), `despesas_contratadas_candidatos` (`despesas-contratadas`) e `despesas_pagas_candidatos` (`despesas-pagas`). Cada partição tem só as suas colunas (60, 23, 53 e 28). Membro com prefixo desconhecido não é convertido e aparece nos erros do resultado. O esquema de referência continua sendo a união das colunas (102). Quem lia o dataset deve passar a filtrar por `tabela`.
+
+**Como reconverter `prestacao-contas`.** Apague a pasta `tse/prestacao-contas/` do lake (a mesma que a correção da dupla contagem já pedia apagar) e converta o dataset de novo; as pastas antigas `ano=<ano>/uf=<uf>/` não são removidas por uma reconversão.
+
 ## [0.3.3] - 2026-11-07
 
 ### Corrigido

@@ -7,7 +7,7 @@ O `tse-fetcher` coleta do repositório de dados eleitorais do Tribunal Superior 
 | `candidatos` | Candidaturas registradas, com perfil e situação de totalização | `consulta_cand_<ano>.zip` | 2018 a 2026 | convertido | [candidatos](datasets/candidatos.md) |
 | `bens-candidatos` | Bens declarados pelas candidaturas | `bem_candidato_<ano>.zip` | 2018 a 2026 | convertido | [bens-candidatos](datasets/bens-candidatos.md) |
 | `votacao-munzona` | Votos nominais por candidatura, município e zona | `votacao_candidato_munzona_<ano>.zip` | 2018, 2020, 2024 (2022 e 2026 no bruto, não abertos) | convertido | [votacao-munzona](datasets/votacao-munzona.md) |
-| `prestacao-contas` | Receitas e despesas de campanha (quatro famílias de arquivos num dataset) | `prestacao_de_contas_eleitorais_candidatos_<ano>.zip` | 2020 a 2026 | convertido | [prestacao-contas](datasets/prestacao-contas.md) |
+| `prestacao-contas` | Receitas e despesas de campanha (quatro tabelas num dataset, separadas pela partição `tabela`) | `prestacao_de_contas_eleitorais_candidatos_<ano>.zip` | 2020 a 2026 | convertido | [prestacao-contas](datasets/prestacao-contas.md) |
 | `votacao-secao` | Votos por seção eleitoral | `votacao_secao_<ano>_<UF>.zip` | não baixado | so-bruto | [votacao-secao](datasets/votacao-secao.md) |
 | `detalhe-votacao-munzona` | Totais da apuração por município e zona | `detalhe_votacao_munzona_<ano>.zip` | não baixado | so-bruto | [detalhe-votacao-munzona](datasets/detalhe-votacao-munzona.md) |
 | `detalhe-votacao-secao` | Totais da apuração por seção | `detalhe_votacao_secao_<ano>.zip` | não baixado | so-bruto | [detalhe-votacao-secao](datasets/detalhe-votacao-secao.md) |

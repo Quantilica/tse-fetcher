@@ -426,3 +426,92 @@ def test_csv_avulso_do_br_vai_para_uf_br(
     assert (res.converted, res.errors) == (1, [])
     ds = tmp_path / "lake" / "tse" / "candidatos" / "ano=2018"
     assert [p.name for p in ds.iterdir()] == ["uf=br"]
+
+
+def test_prestacao_separa_as_quatro_tabelas_em_particoes(
+    tmp_path: Path, lake_converter: LakeConverter, caplog
+) -> None:
+    z = tmp_path / "raw" / "prestacao-contas"
+    familias = {
+        "receitas_candidatos": ("sq_receita;vr_receita", "1;10", "2;20"),
+        "receitas_candidatos_doador_originario": (
+            "sq_receita;nm_doador_originario",
+            "1;A",
+            "2;B",
+        ),
+        "despesas_contratadas_candidatos": (
+            "sq_despesa;vr_despesa_contratada",
+            "5;50",
+            "6;60",
+        ),
+        "despesas_pagas_candidatos": ("sq_despesa;vr_pagto_despesa", "5;50", "6;60"),
+    }
+    membros = {}
+    for fam, (cab, l1, l2) in familias.items():
+        membros[f"{fam}_2026_AC.csv"] = f"{cab}\n{l1}\n"
+        membros[f"{fam}_2026_SP.csv"] = f"{cab}\n{l2}\n"
+        membros[f"{fam}_2026_BRASIL.csv"] = f"{cab}\n{l1}\n{l2}\n"
+    _zip_com(z / "prestacao_de_contas_eleitorais_candidatos_2026.zip", membros)
+    with caplog.at_level("WARNING"):
+        res = lake_converter.convert(tmp_path / "raw", tmp_path / "lake")
+    assert (res.converted, res.skipped, res.errors) == (8, 0, [])
+    assert "NÃO bate" not in caplog.text  # os 4 BRASIL batem e foram descartados
+    base = tmp_path / "lake" / "tse" / "prestacao-contas" / "ano=2026"
+    assert sorted(p.name for p in base.iterdir()) == [
+        "tabela=despesas-contratadas",
+        "tabela=despesas-pagas",
+        "tabela=doador-originario",
+        "tabela=receitas",
+    ]
+    colunas = {
+        p.name: set(pl.read_parquet(next(p.rglob("*.parquet"))).columns)
+        for p in base.iterdir()
+    }
+    assert colunas["tabela=receitas"] == {"sq_receita", "vr_receita"}
+    assert colunas["tabela=doador-originario"] == {"sq_receita", "nm_doador_originario"}
+    assert colunas["tabela=despesas-contratadas"] == {
+        "sq_despesa",
+        "vr_despesa_contratada",
+    }
+    assert colunas["tabela=despesas-pagas"] == {"sq_despesa", "vr_pagto_despesa"}
+    assert sorted(p.name for p in (base / "tabela=receitas").iterdir()) == [
+        "uf=ac",
+        "uf=sp",
+    ]
+    assert not check_dataset(tmp_path / "lake" / "tse" / "prestacao-contas")
+
+
+def test_prestacao_com_prefixo_desconhecido_e_erro_explicito(
+    tmp_path: Path, lake_converter: LakeConverter
+) -> None:
+    _zip_com(
+        tmp_path
+        / "raw"
+        / "prestacao-contas"
+        / "prestacao_de_contas_eleitorais_candidatos_2026.zip",
+        {
+            "receitas_candidatos_2026_AC.csv": "sq_receita\n1\n",
+            "outra_coisa_candidatos_2026_AC.csv": "x\n1\n",
+        },
+    )
+    res = lake_converter.convert(tmp_path / "raw", tmp_path / "lake")
+    assert res.converted == 1
+    assert len(res.errors) == 1
+    assert "outra_coisa_candidatos_2026_AC.csv" in res.errors[0]
+    assert "tabela da prestação de contas não reconhecida" in res.errors[0]
+    base = tmp_path / "lake" / "tse" / "prestacao-contas" / "ano=2026"
+    assert [p.name for p in base.iterdir()] == ["tabela=receitas"]
+
+
+def test_resolve_tabela_distingue_receitas_de_doador_originario() -> None:
+    from tse_fetcher.lake import resolve_tabela
+
+    assert resolve_tabela("receitas_candidatos_2026_AC.csv") == "receitas"
+    assert resolve_tabela("receitas_candidatos_doador_originario_2026_AC.csv") == (
+        "doador-originario"
+    )
+    assert resolve_tabela("despesas_pagas_candidatos_2026_BR.csv") == "despesas-pagas"
+    assert resolve_tabela("despesas_contratadas_candidatos_2026_BRASIL.csv") == (
+        "despesas-contratadas"
+    )
+    assert resolve_tabela("candidatos_2026.csv") is None

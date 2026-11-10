@@ -145,6 +145,48 @@ NACIONAL_DATASETS = frozenset(
 )
 
 _DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__"
+
+#: ``prestacao-contas`` reúne quatro tabelas de colunas diferentes; a partição
+#: ``tabela`` as separa. Prefixo do nome do membro do ZIP -> valor da partição
+#: (do mais específico ao mais geral: ``receitas_candidatos`` é prefixo de
+#: ``receitas_candidatos_doador_originario``).
+PRESTACAO_TABELAS: tuple[tuple[str, str], ...] = (
+    ("receitas_candidatos_doador_originario", "doador-originario"),
+    ("receitas_candidatos", "receitas"),
+    ("despesas_contratadas_candidatos", "despesas-contratadas"),
+    ("despesas_pagas_candidatos", "despesas-pagas"),
+)
+
+
+_ERRO_TABELA = (
+    "{nome}: tabela da prestação de contas não reconhecida pelo prefixo do nome "
+    "(esperado: receitas_candidatos, receitas_candidatos_doador_originario, "
+    "despesas_contratadas_candidatos ou despesas_pagas_candidatos)"
+)
+
+
+def resolve_tabela(name: str) -> str | None:
+    """Valor da partição ``tabela`` de um arquivo da prestação, ou ``None``."""
+    low = name.lower()
+    for prefixo, tabela in PRESTACAO_TABELAS:
+        if low.startswith(prefixo + "_") or low == prefixo:
+            return tabela
+    return None
+
+
+def _partitions(
+    dataset_id: str, ano: int, uf: str, name: str
+) -> dict[str, int | str] | None:
+    """Partições do arquivo na ordem das chaves do dataset (``None`` se a tabela
+    da prestação de contas não for reconhecida)."""
+    if dataset_id != "prestacao-contas":
+        return {"ano": ano, "uf": uf}
+    tabela = resolve_tabela(name)
+    if tabela is None:
+        return None
+    return {"ano": ano, "tabela": tabela, "uf": uf}
+
+
 _MEMBER_UF_RE = re.compile(r"^(?P<base>.+?)[-_](?P<uf>[A-Za-z]{2}|brasil)$", re.I)
 
 
@@ -372,7 +414,11 @@ class LakeConverter:
             if not dataset_id or dataset_id not in allowed:
                 continue
 
-            part_keys = ["ano", "uf"]
+            part_keys = (
+                ["ano", "tabela", "uf"]
+                if dataset_id == "prestacao-contas"
+                else ["ano", "uf"]
+            )
             writer_key = f"{dataset_id}:" + ",".join(part_keys)
             if writer_key not in writers:
                 writers[writer_key] = LakeWriter(
@@ -402,7 +448,10 @@ class LakeConverter:
                             f"{path.name}: não foi possível inferir o ano"
                         )
                         continue
-                    part_vals = {"ano": ano, "uf": uf}
+                    part_vals = _partitions(dataset_id, ano, uf, path.name)
+                    if part_vals is None:
+                        result.errors.append(_ERRO_TABELA.format(nome=path.name))
+                        continue
                     key = file_key(path).lower()
                     written = writer.write_duckdb(
                         path,
@@ -453,7 +502,14 @@ class LakeConverter:
                                     f"{member.name}: não foi possível inferir o ano"
                                 )
                                 continue
-                            part_vals = {"ano": ano, "uf": uf}
+                            part_vals = _partitions(dataset_id, ano, uf, member.name)
+                            if part_vals is None:
+                                result.errors.append(
+                                    _ERRO_TABELA.format(
+                                        nome=f"{path.name}: {member.name}"
+                                    )
+                                )
+                                continue
                             member_name = member.stem
                             key = composite_file_key(path, member_name).lower()
                             written = writer.write_duckdb(
