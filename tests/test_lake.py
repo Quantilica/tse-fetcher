@@ -92,7 +92,7 @@ def test_convert_csv_and_zip(tmp_path: Path, lake_converter: LakeConverter) -> N
 
     res = lake_converter.convert(raw_dir, lake_dir)
     assert res.converted == 2
-    assert res.skipped == 1  # o BRASIL só repete as UFs do mesmo ZIP
+    assert res.skipped == 0  # o BRASIL descartado não conta como "já no lake"
     assert not res.errors
 
     # Verify votacao-munzona partition and descriptor
@@ -133,7 +133,7 @@ def test_convert_csv_and_zip(tmp_path: Path, lake_converter: LakeConverter) -> N
     # Idempotent second run
     res2 = lake_converter.convert(raw_dir, lake_dir)
     assert res2.converted == 0
-    assert res2.skipped == 3
+    assert res2.skipped == 2
 
 
 def test_convert_errors(tmp_path: Path, lake_converter: LakeConverter) -> None:
@@ -256,7 +256,7 @@ def test_brasil_nao_e_lido_quando_o_zip_tem_as_ufs(
     res = lake_converter.convert(tmp_path / "raw", lake)
     assert not res.errors, res.errors
     assert res.converted == 3
-    assert res.skipped == 1  # o BRASIL redundante
+    assert res.skipped == 0  # o BRASIL descartado não conta como "já no lake"
     df = _linhas(lake, "candidatos")
     assert df.height == 4
     assert sorted(df["sq_candidato"].to_list()) == ["1", "2", "3", "4"]
@@ -302,7 +302,7 @@ def test_prestacao_decide_o_brasil_por_familia_de_arquivos(
     lake = tmp_path / "lake"
     res = lake_converter.convert(tmp_path / "raw", lake)
     assert not res.errors, res.errors
-    assert (res.converted, res.skipped) == (3, 1)
+    assert (res.converted, res.skipped) == (3, 0)
     df = _linhas_uniao(lake, "prestacao-contas")
     assert df["sq_receita"].drop_nulls().sort().to_list() == ["1", "2"]
     assert df["sq_despesa"].drop_nulls().sort().to_list() == ["7", "8"]
@@ -359,3 +359,70 @@ def test_resolve_partitions_br_so_muda_quando_pedido() -> None:
         2018,
         "__HIVE_DEFAULT_PARTITION__",
     )
+
+
+def test_contagem_de_registros_respeita_quebra_de_linha_entre_aspas(
+    tmp_path: Path,
+) -> None:
+    from tse_fetcher.lake import count_csv_records
+
+    arq = tmp_path / "x.csv"
+    arq.write_bytes(
+        b'"a";"b"\n"1";"linha um\nlinha dois"\n"2";"com ""aspas"""\n"3";"fim"\n'
+    )
+    assert count_csv_records(arq) == 3
+
+
+def _zip_candidatos(raw: Path, brasil: str) -> None:
+    cab = "ano_eleicao;sg_uf;sq_candidato\n"
+    _zip_com(
+        raw / "candidatos" / "consulta_cand_2018.zip",
+        {
+            "consulta_cand_2018_AC.csv": cab + "2018;AC;1\n",
+            "consulta_cand_2018_SP.csv": cab + "2018;SP;2\n2018;SP;3\n",
+            "consulta_cand_2018_BR.csv": cab + "2018;BR;4\n",
+            "consulta_cand_2018_BRASIL.csv": cab + brasil,
+        },
+    )
+
+
+def test_brasil_que_bate_com_as_ufs_e_descartado_sem_aviso(
+    tmp_path: Path, lake_converter: LakeConverter, caplog
+) -> None:
+    _zip_candidatos(tmp_path / "raw", "2018;AC;1\n2018;SP;2\n2018;SP;3\n2018;BR;4\n")
+    with caplog.at_level("INFO"):
+        res = lake_converter.convert(tmp_path / "raw", tmp_path / "lake")
+    assert (res.converted, res.skipped, res.errors) == (3, 0, [])
+    assert "NÃO bate" not in caplog.text
+    assert "repetem as UFs (3) e o BR (1)" in caplog.text
+
+
+def test_brasil_que_nao_bate_avisa_com_as_tres_contagens(
+    tmp_path: Path, lake_converter: LakeConverter, caplog
+) -> None:
+    # o BRASIL tem uma linha a mais do que UFs + BR
+    _zip_candidatos(
+        tmp_path / "raw", "2018;AC;1\n2018;SP;2\n2018;SP;3\n2018;BR;4\n2018;ZZ;9\n"
+    )
+    with caplog.at_level("WARNING"):
+        res = lake_converter.convert(tmp_path / "raw", tmp_path / "lake")
+    assert (res.converted, res.skipped, res.errors) == (3, 0, [])
+    assert "NÃO bate" in caplog.text
+    assert "BRASIL tem 5 linhas" in caplog.text
+    assert "as UFs somam 3 e o BR tem 1" in caplog.text
+    # sem dupla contagem: só UFs e BR no lake
+    assert _linhas(tmp_path / "lake", "candidatos").height == 4
+
+
+def test_csv_avulso_do_br_vai_para_uf_br(
+    tmp_path: Path, lake_converter: LakeConverter
+) -> None:
+    d = tmp_path / "raw" / "candidatos"
+    d.mkdir(parents=True)
+    (d / "consulta_cand_2018_BR.csv").write_text(
+        "ano_eleicao;sg_uf;sq_candidato\n2018;BR;4\n", encoding="latin-1"
+    )
+    res = lake_converter.convert(tmp_path / "raw", tmp_path / "lake")
+    assert (res.converted, res.errors) == (1, [])
+    ds = tmp_path / "lake" / "tse" / "candidatos" / "ano=2018"
+    assert [p.name for p in ds.iterdir()] == ["uf=br"]

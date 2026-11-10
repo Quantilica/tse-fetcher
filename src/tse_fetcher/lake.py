@@ -148,14 +148,15 @@ _DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__"
 _MEMBER_UF_RE = re.compile(r"^(?P<base>.+?)[-_](?P<uf>[A-Za-z]{2}|brasil)$", re.I)
 
 
-def redundant_brasil(members: list[Path]) -> set[Path]:
+def redundant_brasil(members: list[Path]) -> dict[Path, list[Path]]:
     """Membros ``..._BRASIL`` de um ZIP que só repetem os arquivos por UF.
 
-    Os membros são agrupados pelo nome sem a UF final (uma família de arquivos:
+    Devolve ``{membro BRASIL: arquivos de UF e BR da mesma família}``. Os membros
+    são agrupados pelo nome sem a UF final (uma família de arquivos:
     ``receitas_candidatos_2026`` não se mistura com ``despesas_pagas_candidatos_2026``).
-    O ``BRASIL`` de uma família é redundante quando a mesma família tem ao menos um
-    arquivo de UF (qualquer sigla que não seja ``BR`` nem ``BRASIL``); sem arquivos
-    por UF ele é a única cópia dos dados e fica.
+    O ``BRASIL`` de uma família é redundante quando ela tem ao menos um arquivo de
+    UF (qualquer sigla que não seja ``BR`` nem ``BRASIL``); sem arquivos por UF ele
+    é a única cópia dos dados e não aparece no resultado.
     """
     por_familia: dict[str, dict[str, list[Path]]] = {}
     for member in members:
@@ -165,12 +166,69 @@ def redundant_brasil(members: list[Path]) -> set[Path]:
         por_familia.setdefault(m["base"].lower(), {}).setdefault(
             m["uf"].lower(), []
         ).append(member)
-    redundantes: set[Path] = set()
+    redundantes: dict[Path, list[Path]] = {}
     for ufs in por_familia.values():
-        tem_uf = any(uf not in {"br", "brasil"} for uf in ufs)
-        if tem_uf:
-            redundantes.update(ufs.get("brasil", []))
+        if not any(uf not in {"br", "brasil"} for uf in ufs):
+            continue
+        irmaos = [p for uf, ps in ufs.items() if uf != "brasil" for p in ps]
+        for brasil in ufs.get("brasil", []):
+            redundantes[brasil] = irmaos
     return redundantes
+
+
+def _e_br(path: Path) -> bool:
+    m = _MEMBER_UF_RE.match(path.stem)
+    return bool(m) and m["uf"].lower() == "br"
+
+
+def _conferir_brasil(zip_path: Path, brasil: Path, irmaos: list[Path]) -> None:
+    """Registra no log por que o ``BRASIL`` não é lido e se ele bate com as UFs.
+
+    O ``BRASIL`` nunca é lido quando há arquivos por UF (seria dupla contagem).
+    Se o número de linhas dele diferir da soma das UFs e do ``BR`` da mesma
+    família, o aviso traz as três contagens: a divergência fica visível e as UFs
+    e o ``BR`` continuam sendo a fonte do lake.
+    """
+    n_brasil = count_csv_records(brasil)
+    n_br = sum(count_csv_records(p) for p in irmaos if _e_br(p))
+    n_ufs = sum(count_csv_records(p) for p in irmaos if not _e_br(p))
+    if n_brasil == n_ufs + n_br:
+        logger.info(
+            "%s: %s não é lido: as %d linhas repetem as UFs (%d) e o BR (%d)",
+            zip_path.name,
+            brasil.name,
+            n_brasil,
+            n_ufs,
+            n_br,
+        )
+        return
+    logger.warning(
+        "%s: %s não é lido e NÃO bate com os arquivos por UF: BRASIL tem %d linhas, "
+        "as UFs somam %d e o BR tem %d (UFs + BR = %d); o lake fica com as UFs e o BR",
+        zip_path.name,
+        brasil.name,
+        n_brasil,
+        n_ufs,
+        n_br,
+        n_ufs + n_br,
+    )
+
+
+def count_csv_records(path: Path) -> int:
+    """Linhas de dados de um CSV (sem o cabeçalho), sem carregá-lo na memória.
+
+    Campos entre aspas podem ter quebra de linha: um registro só termina na
+    quebra em que o número de aspas lidas até ali é par (``""`` conta duas).
+    """
+    registros = 0
+    abertas = False
+    with open(path, "rb") as f:
+        for linha in f:
+            if linha.count(b'"') % 2:
+                abertas = not abertas
+            if not abertas:
+                registros += 1
+    return max(registros - 1, 0)
 
 
 @dataclass
@@ -333,7 +391,12 @@ class LakeConverter:
             suffix = path.suffix.lower()
             try:
                 if suffix == ".csv":
-                    ano, uf = resolve_partitions(path)
+                    ano, uf = resolve_partitions(
+                        path,
+                        br_partition="br"
+                        if dataset_id in NACIONAL_DATASETS
+                        else _DEFAULT_PARTITION,
+                    )
                     if ano is None:
                         result.errors.append(
                             f"{path.name}: não foi possível inferir o ano"
@@ -373,17 +436,11 @@ class LakeConverter:
                             continue
 
                         nacional = dataset_id in NACIONAL_DATASETS
-                        repetidos = redundant_brasil(all_members) if nacional else set()
+                        repetidos = redundant_brasil(all_members) if nacional else {}
                         br_part = "br" if nacional else _DEFAULT_PARTITION
                         for member in all_members:
                             if member in repetidos:
-                                logger.info(
-                                    "%s: %s só repete os arquivos por UF do mesmo "
-                                    "ZIP; não é lido",
-                                    path.name,
-                                    member.name,
-                                )
-                                result.skipped += 1
+                                _conferir_brasil(path, member, repetidos[member])
                                 continue
                             ano_m, uf_m = resolve_partitions(
                                 member, br_partition=br_part
