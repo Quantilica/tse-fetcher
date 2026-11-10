@@ -91,8 +91,8 @@ def test_convert_csv_and_zip(tmp_path: Path, lake_converter: LakeConverter) -> N
         )
 
     res = lake_converter.convert(raw_dir, lake_dir)
-    assert res.converted == 3
-    assert res.skipped == 0
+    assert res.converted == 2
+    assert res.skipped == 1  # o BRASIL só repete as UFs do mesmo ZIP
     assert not res.errors
 
     # Verify votacao-munzona partition and descriptor
@@ -123,15 +123,8 @@ def test_convert_csv_and_zip(tmp_path: Path, lake_converter: LakeConverter) -> N
     )
     assert sp_part.is_file()
 
-    br_part = (
-        lake_dir
-        / "tse"
-        / "candidatos"
-        / "ano=2022"
-        / "uf=__HIVE_DEFAULT_PARTITION__"
-        / "consulta_cand_2022__consulta_cand_2022_brasil.parquet"
-    )
-    assert br_part.is_file()
+    brasil_part = lake_dir / "tse" / "candidatos" / "ano=2022"
+    assert [p.name for p in brasil_part.iterdir()] == ["uf=sp"]
 
     desc_cand = DatasetDescriptor.load(lake_dir / "tse" / "candidatos")
     assert desc_cand.partition_types == {"ano": "int", "uf": "varchar"}
@@ -229,3 +222,140 @@ def test_quebra_de_linha_dentro_de_aspas(
     descr = df["ds_bem_candidato"].to_list()
     assert descr[-2] == "APTO EM ED. MOACYR MAIA,\nAV. APODI, 500"
     assert descr[-1] == 'CASA COM "VARANDA"'
+
+
+def _zip_com(path: Path, membros: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as zf:
+        for nome, conteudo in membros.items():
+            zf.writestr(nome, conteudo)
+
+
+def _linhas(lake: Path, dataset: str) -> pl.DataFrame:
+    return pl.read_parquet(
+        lake / "tse" / dataset / "**" / "*.parquet", hive_partitioning=True
+    )
+
+
+def test_brasil_nao_e_lido_quando_o_zip_tem_as_ufs(
+    tmp_path: Path, lake_converter: LakeConverter
+) -> None:
+    """``BRASIL`` repete as UFs e o ``BR``; ler os três contava tudo em dobro."""
+    cab = "ano_eleicao;sg_uf;sq_candidato\n"
+    _zip_com(
+        tmp_path / "raw" / "candidatos" / "consulta_cand_2018.zip",
+        {
+            "consulta_cand_2018_AC.csv": cab + "2018;AC;1\n",
+            "consulta_cand_2018_SP.csv": cab + "2018;SP;2\n2018;SP;3\n",
+            "consulta_cand_2018_BR.csv": cab + "2018;BR;4\n",
+            "consulta_cand_2018_BRASIL.csv": cab
+            + "2018;AC;1\n2018;SP;2\n2018;SP;3\n2018;BR;4\n",
+        },
+    )
+    lake = tmp_path / "lake"
+    res = lake_converter.convert(tmp_path / "raw", lake)
+    assert not res.errors, res.errors
+    assert res.converted == 3
+    assert res.skipped == 1  # o BRASIL redundante
+    df = _linhas(lake, "candidatos")
+    assert df.height == 4
+    assert sorted(df["sq_candidato"].to_list()) == ["1", "2", "3", "4"]
+    ds = lake / "tse" / "candidatos" / "ano=2018"
+    assert sorted(p.name for p in ds.iterdir()) == ["uf=ac", "uf=br", "uf=sp"]
+    assert not list(ds.rglob("*brasil*"))
+    assert not check_dataset(lake / "tse" / "candidatos")
+
+
+def test_brasil_e_lido_quando_o_zip_so_tem_ele(
+    tmp_path: Path, lake_converter: LakeConverter
+) -> None:
+    cab = "ano_eleicao;sq_candidato\n"
+    _zip_com(
+        tmp_path / "raw" / "bens-candidatos" / "bem_candidato_2024.zip",
+        {"bem_candidato_2024_BRASIL.csv": cab + "2024;1\n2024;2\n"},
+    )
+    lake = tmp_path / "lake"
+    res = lake_converter.convert(tmp_path / "raw", lake)
+    assert (res.converted, res.skipped, res.errors) == (1, 0, [])
+    ds = lake / "tse" / "bens-candidatos" / "ano=2024"
+    assert [p.name for p in ds.iterdir()] == ["uf=__HIVE_DEFAULT_PARTITION__"]
+    assert _linhas(lake, "bens-candidatos").height == 2
+
+
+def test_prestacao_decide_o_brasil_por_familia_de_arquivos(
+    tmp_path: Path, lake_converter: LakeConverter
+) -> None:
+    """Cada família (receitas, despesas...) tem o seu ``BRASIL``."""
+    _zip_com(
+        tmp_path
+        / "raw"
+        / "prestacao-contas"
+        / ("prestacao_de_contas_eleitorais_candidatos_2026.zip"),
+        {
+            "receitas_candidatos_2026_AC.csv": "sq_receita\n1\n",
+            "receitas_candidatos_2026_BR.csv": "sq_receita\n2\n",
+            "receitas_candidatos_2026_BRASIL.csv": "sq_receita\n1\n2\n",
+            # família sem arquivos por UF: o BRASIL é a única cópia
+            "despesas_pagas_candidatos_2026_BRASIL.csv": "sq_despesa\n7\n8\n",
+        },
+    )
+    lake = tmp_path / "lake"
+    res = lake_converter.convert(tmp_path / "raw", lake)
+    assert not res.errors, res.errors
+    assert (res.converted, res.skipped) == (3, 1)
+    df = _linhas_uniao(lake, "prestacao-contas")
+    assert df["sq_receita"].drop_nulls().sort().to_list() == ["1", "2"]
+    assert df["sq_despesa"].drop_nulls().sort().to_list() == ["7", "8"]
+
+
+def _linhas_uniao(lake: Path, dataset: str) -> pl.DataFrame:
+    arquivos = sorted((lake / "tse" / dataset).rglob("*.parquet"))
+    return pl.concat([pl.read_parquet(a) for a in arquivos], how="diagonal")
+
+
+def test_brasil_de_dataset_fora_da_lista_continua_sendo_lido(
+    tmp_path: Path, lake_converter: LakeConverter
+) -> None:
+    cab = "ano_eleicao;qt_votos\n"
+    _zip_com(
+        tmp_path / "raw" / "votacao-secao" / "votacao_secao_2022.zip",
+        {
+            "votacao_secao_2022_SP.csv": cab + "2022;1\n",
+            "votacao_secao_2022_BRASIL.csv": cab + "2022;1\n",
+        },
+    )
+    res = lake_converter.convert(tmp_path / "raw", tmp_path / "lake")
+    assert (res.converted, res.skipped, res.errors) == (2, 0, [])
+
+
+def test_redes_sociais_aceita_o_nome_publicado_pela_fonte() -> None:
+    novo = Path("/data/tse/rede_social_candidato_2024.zip")
+    antigo = Path("/data/tse/redes_sociais_candidatos_2024.zip")
+    assert resolve_dataset(novo) == "redes-sociais"
+    assert resolve_dataset(antigo) == "redes-sociais"
+    assert resolve_dataset(Path("/data/tse/redes-sociais/x_2024.zip")) == (
+        "redes-sociais"
+    )
+
+
+def test_redes_sociais_converte_o_zip_com_o_nome_da_fonte(
+    tmp_path: Path, lake_converter: LakeConverter
+) -> None:
+    _zip_com(
+        tmp_path / "raw" / "rede_social_candidato_2024.zip",
+        {"rede_social_candidato_2024_BRASIL.csv": "sq_candidato;ds_url\n1;x\n"},
+    )
+    res = lake_converter.convert(tmp_path / "raw", tmp_path / "lake")
+    assert (res.converted, res.errors) == (1, [])
+    assert _linhas(tmp_path / "lake", "redes-sociais").height == 1
+
+
+def test_resolve_partitions_br_so_muda_quando_pedido() -> None:
+    p = Path("consulta_cand_2018_BR.csv")
+    assert resolve_partitions(p) == (2018, "__HIVE_DEFAULT_PARTITION__")
+    assert resolve_partitions(p, br_partition="br") == (2018, "br")
+    brasil = Path("consulta_cand_2018_BRASIL.csv")
+    assert resolve_partitions(brasil, br_partition="br") == (
+        2018,
+        "__HIVE_DEFAULT_PARTITION__",
+    )

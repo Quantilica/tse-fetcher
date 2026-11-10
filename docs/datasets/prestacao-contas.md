@@ -194,13 +194,13 @@ Descrições dos quatro `leiame_*.pdf` oficiais do TSE; a coluna Período diz em
 ## No lake
 
 - Dataset `tse/prestacao-contas`, particionado por `ano` e `uf`, um Parquet por CSV de origem. O nome do Parquet guarda a família (`...__receitas_candidatos_2026_ac.parquet`), mas a família **não é uma coluna**.
-- `ano` e `uf` vêm do nome do membro; `BR` e `BRASIL` vão para `uf=__HIVE_DEFAULT_PARTITION__`.
+- `ano` e `uf` vêm do nome do membro; o `BR` vai para `uf=br` e o `BRASIL` de uma família só é lido se o ZIP não tiver os arquivos por UF dessa mesma família (então vai para `uf=__HIVE_DEFAULT_PARTITION__`). A decisão é por família: `receitas_candidatos` e `receitas_candidatos_doador_originario` não se misturam.
 - Todas as colunas são texto; valores em reais com vírgula decimal. Leitura em Latin-1 com campos entre aspas e quebra de linha; nas amostras o lake tem tantas linhas quanto registros no CSV (3.005, 474, 22.427 e 23.061 nos quatro membros do Acre de 2026).
 - O esquema de referência (`prestacao-contas.schema.json`) tem 102 colunas, união das quatro famílias, gerado de uma conversão de amostras do Acre de 2026.
 
 ## Cuidados de uso
 
-- **Dupla contagem: o arquivo consolidado `BRASIL` é lido junto com os de cada UF.** O ZIP traz um CSV por UF, o `BR` (nível nacional, quando existe) e o `BRASIL` (todas as linhas). O conversor lê todos: os de UF vão para `uf=<sigla>` e o `BR` e o `BRASIL` caem na mesma partição `uf=__HIVE_DEFAULT_PARTITION__`. Somar o lake inteiro conta cada linha pelo menos duas vezes (o `BR` também). Para contar uma vez, leia só o arquivo `*_brasil.parquet` de cada `ano` (ele já inclui os de UF e o `BR`) ou só as partições de UF mais o `BR`. Aqui o efeito é maior porque o `BRASIL` de cada família é o maior arquivo (receitas 2024: 1,4 GB; despesas contratadas 2024: 2,7 GB). Não conferido: a contagem de linhas dos arquivos inteiros.
+- **Dupla contagem (corrigida; lake gerado até a versão 0.3.3 ainda tem).** O ZIP traz um CSV por UF, o `BR` (registros de âmbito nacional, quando existe) e o `BRASIL` (consolidado que repete as UFs e o `BR`). O conversor atual não lê o `BRASIL` quando o ZIP tem os arquivos por UF: lê as UFs (`uf=<sigla>`) e o `BR` (`uf=br`, com `sg_uf` = `BR`); se o ZIP só tiver o `BRASIL`, ele é lido e vai para `uf=__HIVE_DEFAULT_PARTITION__`. Assim somar o lake inteiro conta cada linha uma vez. Um lake gerado antes da correção tem os Parquets do `BRASIL` em `uf=__HIVE_DEFAULT_PARTITION__` e as linhas em dobro: apague `tse/prestacao-contas/` e reconverta (veja o `CHANGELOG.md`). Padrão de nomes conferido no ZIP de 2026: `<família>_2026_<UF>.csv`, `<família>_2026_BR.csv` e `<família>_2026_BRASIL.csv` para cada uma das quatro famílias. A contagem de linhas dos arquivos inteiros não foi conferida; a regra é a mesma dos outros datasets.
 - **Quatro tabelas num dataset.** Receitas, doadores originários, despesas contratadas e despesas pagas têm colunas e significados diferentes, e o lake não grava a família numa coluna. Ao ler com `union_by_name`, identifique a família pela coluna preenchida (`vr_receita` só nas receitas e nos doadores originários, `vr_despesa_contratada`, `vr_pagto_despesa`) ou pelo nome do arquivo (`input_file_name`/`include_file_paths`). Somar `vr_receita` com as colunas de despesa mistura conceitos.
 - **Despesa contratada não é despesa paga.** As duas famílias descrevem etapas diferentes do mesmo gasto; não as some.
 - **Doador originário.** Cada linha dessa família refere-se a uma receita (`sq_receita`) e detalha quem deu o dinheiro originalmente; somar receitas e doadores originários conta a mesma verba duas vezes.
@@ -210,14 +210,13 @@ Descrições dos quatro `leiame_*.pdf` oficiais do TSE; a coluna Período diz em
 
 ## Exemplos
 
-Total de receitas de campanha de 2026 por partido, lendo só a família `receitas_candidatos` do consolidado `BRASIL` (o arquivo é escolhido pelo nome, já que a família não é coluna):
+Total de receitas de campanha de 2026 por partido, lendo só a família `receitas_candidatos` (o arquivo é escolhido pelo nome, já que a família não é coluna):
 
 ```python
 import polars as pl
 
 receitas = pl.scan_parquet(
-    "lake/tse/prestacao-contas/ano=2026/uf=__HIVE_DEFAULT_PARTITION__/"
-    "*__receitas_candidatos_2026_brasil.parquet"
+    "lake/tse/prestacao-contas/ano=2026/*/*__receitas_candidatos_2026_*.parquet"
 )
 resumo = (
     receitas.with_columns(

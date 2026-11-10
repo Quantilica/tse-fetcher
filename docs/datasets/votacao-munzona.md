@@ -132,13 +132,13 @@ Descrições do LEIAME oficial do TSE (votacao_candidato_munzona, versão de 202
 ## No lake
 
 - Dataset `tse/votacao-munzona`, particionado por `ano` e `uf`, um Parquet por CSV de origem.
-- `ano` e `uf` vêm do nome do membro; `BR` e `BRASIL` vão para `uf=__HIVE_DEFAULT_PARTITION__`.
-- Todas as colunas são texto, nomes da fonte em minúsculas; a conversão de um ano inteiro lê um `BRASIL` que pode passar de 4 GB descompactado (2018), então reserve disco temporário.
+- `ano` e `uf` vêm do nome do membro; o `BR` vai para `uf=br` e o `BRASIL` só é lido se o ZIP não tiver os arquivos por UF (então vai para `uf=__HIVE_DEFAULT_PARTITION__`).
+- Todas as colunas são texto, nomes da fonte em minúsculas; o `BRASIL` (4 GB descompactado em 2018) não é mais lido quando o ZIP tem as UFs, o que poupa disco temporário e tempo.
 - O esquema de referência (`votacao-munzona.schema.json`) tem 52 colunas: as 50 do layout atual mais as duas de diploma de 2018. Foi gerado de uma conversão de amostras (3.000 linhas do Acre por ano), não dos arquivos inteiros.
 
 ## Cuidados de uso
 
-- **Dupla contagem: o arquivo consolidado `BRASIL` é lido junto com os de cada UF.** O ZIP traz um CSV por UF, o `BR` (nível nacional, quando existe) e o `BRASIL` (todas as linhas). O conversor lê todos: os de UF vão para `uf=<sigla>` e o `BR` e o `BRASIL` caem na mesma partição `uf=__HIVE_DEFAULT_PARTITION__`. Somar o lake inteiro conta cada linha pelo menos duas vezes (em 2018 o `BR` também entra duas vezes). Para contar uma vez, leia só o arquivo `*_brasil.parquet` de cada `ano` (ele já inclui os de UF e o `BR`) ou só as partições de UF mais o `BR`. Evidência (versão 0.3.3, 2026-11-10): em 2018 o `BRASIL` tem 8.680.108 linhas, as UFs somam 8.586.508 e o `BR` 93.600; em 2020 e 2024 o `BRASIL` iguala a soma das UFs (983.614 e 717.288).
+- **Dupla contagem (corrigida; lake gerado até a versão 0.3.3 ainda tem).** O ZIP traz um CSV por UF, o `BR` (registros de âmbito nacional, quando existe) e o `BRASIL` (consolidado que repete as UFs e o `BR`). O conversor atual não lê o `BRASIL` quando o ZIP tem os arquivos por UF: lê as UFs (`uf=<sigla>`) e o `BR` (`uf=br`, com `sg_uf` = `BR`); se o ZIP só tiver o `BRASIL`, ele é lido e vai para `uf=__HIVE_DEFAULT_PARTITION__`. Assim somar o lake inteiro conta cada linha uma vez. Um lake gerado antes da correção tem os Parquets do `BRASIL` em `uf=__HIVE_DEFAULT_PARTITION__` e as linhas em dobro: apague `tse/votacao-munzona/` e reconverta (veja o `CHANGELOG.md`). Evidência (conferida em 2026-11-10): em 2018 o `BRASIL` tem 8.680.108 linhas, as UFs somam 8.586.508 e o `BR` 93.600 (o `BRASIL` é a soma dos dois), e o lake passa a ter essa soma uma vez; em 2020 e 2024 o `BRASIL` iguala a soma das UFs (983.614 e 717.288).
 - **Colunas de diploma mudam de nome em 2020.** Ao juntar os anos, `cd_situacao_diploma` (2018) e `cd_situacao_dconst_diploma` (2020 em diante) ficam em colunas separadas, e um `union` por posição erra; use `how="diagonal"` ou renomeie.
 - **Votos válidos.** Some `qt_votos_nominais_validos` (ou filtre `nm_tipo_destinacao_votos = "Válido"`); `qt_votos_nominais` inclui votos anulados.
 - **Marcadores da fonte ficam como texto, não viram nulo.** Segundo o LEIAME, `#NULO` indica campo em branco (`-1` nos numéricos), `#NE` indica informação não registrada naquele ano (`-3`) e `-4` indica dado pessoal não divulgável. O lake os guarda literais; a escrita varia entre arquivos (`#NULO#` em 2018 e `#NULO` em 2024, conferido nas amostras), então teste as duas. Nulo de verdade só aparece em campos vazios.
@@ -146,13 +146,13 @@ Descrições do LEIAME oficial do TSE (votacao_candidato_munzona, versão de 202
 
 ## Exemplos
 
-Votos nominais válidos por partido para vereador em 2024, lendo só o consolidado `BRASIL`:
+Votos nominais válidos por partido para vereador em 2024:
 
 ```python
 import polars as pl
 
 votos = pl.scan_parquet(
-    "lake/tse/votacao-munzona/ano=2024/uf=__HIVE_DEFAULT_PARTITION__/*_brasil.parquet"
+    "lake/tse/votacao-munzona/ano=2024/*/*.parquet", hive_partitioning=True
 )
 resumo = (
     votos.filter(pl.col("ds_cargo") == "Vereador")

@@ -26,7 +26,7 @@ O `tse-fetcher` coleta do repositório de dados eleitorais do Tribunal Superior 
 
 ## O que vale para todos os datasets
 
-- **Dupla contagem.** O conversor lê o `BRASIL` e o `BR` junto com os arquivos de cada UF, e eles caem em `uf=__HIVE_DEFAULT_PARTITION__`. Conferido para `candidatos`, `bens-candidatos`, `votacao-munzona` (2018, 2020, 2024): o `BRASIL` tem exatamente as linhas das UFs (mais o `BR`, em 2018). Em `prestacao-contas` os ZIPs seguem o mesmo padrão (UFs, `BR` e `BRASIL`), mas a contagem de linhas não foi feita. Leia o `*_brasil.parquet` de cada ano, ou só as UFs mais o `BR`.
+- **Dupla contagem (corrigida).** O `BRASIL` repete as UFs e o `BR`. Até a versão 0.3.3 o conversor lia os três, e as linhas apareciam em dobro. Agora, em `candidatos`, `bens-candidatos`, `votacao-munzona` e `prestacao-contas`, o `BRASIL` só é lido quando o ZIP não tem os arquivos por UF, e o `BR` vai para `uf=br`. Conferido em `candidatos` e `bens-candidatos` (2018) e nas contagens de `votacao-munzona` (2018, 2020, 2024): o `BRASIL` tem exatamente as linhas das UFs mais o `BR`. Lake gerado antes da correção: apague a pasta do dataset e reconverta (veja o `CHANGELOG.md`).
 - **Tudo é texto.** O lake guarda todas as colunas como texto, incluindo valores em reais com vírgula decimal e datas `dd/mm/aaaa`, e os marcadores `#NULO`, `#NE`, `-1`, `-3` e `-4` ficam literais.
 - **Dados pessoais.** Candidaturas e prestação de contas trazem nomes, CPF, título de eleitor, data de nascimento, gênero e cor/raça. São públicos por lei eleitoral, mas pessoais; cada página lista as colunas no cabeçalho como inventário.
 - **Eleições suplementares** vêm dentro do arquivo do ciclo ordinário correspondente.

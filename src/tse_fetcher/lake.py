@@ -17,6 +17,7 @@ Datasets in the Lake:
 
 from __future__ import annotations
 
+import logging
 import re
 import tempfile
 import zipfile
@@ -42,6 +43,8 @@ except ImportError as exc:
     ) from exc
 
 from tse_fetcher import __version__
+
+logger = logging.getLogger(__name__)
 
 SOURCE_ID = "tse"
 
@@ -87,6 +90,8 @@ _ALIASES: dict[str, str] = {
     "detalhe_votacao_secao": "detalhe-votacao-secao",
     "perfil_eleitorado": "eleitorado",
     "redes_sociais_candidatos": "redes-sociais",
+    # nome com que a fonte publica o ZIP (``rede_social_candidato_<ano>.zip``)
+    "rede_social_candidato": "redes-sociais",
     "motivo_cassacao": "motivo-cassacao",
     "consulta_vagas": "vagas",
     "bweb": "boletim-urna",
@@ -132,6 +137,42 @@ VALID_UFS: frozenset[str] = frozenset(
 )
 
 
+#: Datasets cujo ZIP traz um CSV por UF, o ``BR`` (registros de âmbito nacional) e o
+#: ``BRASIL`` (consolidado que repete as UFs e o ``BR``). Neles o ``BRASIL`` só é
+#: lido se o ZIP não tiver os arquivos por UF, e o ``BR`` vai para ``uf=br``.
+NACIONAL_DATASETS = frozenset(
+    {"candidatos", "bens-candidatos", "votacao-munzona", "prestacao-contas"}
+)
+
+_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__"
+_MEMBER_UF_RE = re.compile(r"^(?P<base>.+?)[-_](?P<uf>[A-Za-z]{2}|brasil)$", re.I)
+
+
+def redundant_brasil(members: list[Path]) -> set[Path]:
+    """Membros ``..._BRASIL`` de um ZIP que só repetem os arquivos por UF.
+
+    Os membros são agrupados pelo nome sem a UF final (uma família de arquivos:
+    ``receitas_candidatos_2026`` não se mistura com ``despesas_pagas_candidatos_2026``).
+    O ``BRASIL`` de uma família é redundante quando a mesma família tem ao menos um
+    arquivo de UF (qualquer sigla que não seja ``BR`` nem ``BRASIL``); sem arquivos
+    por UF ele é a única cópia dos dados e fica.
+    """
+    por_familia: dict[str, dict[str, list[Path]]] = {}
+    for member in members:
+        m = _MEMBER_UF_RE.match(member.stem)
+        if not m or m["uf"].lower() not in VALID_UFS:
+            continue
+        por_familia.setdefault(m["base"].lower(), {}).setdefault(
+            m["uf"].lower(), []
+        ).append(member)
+    redundantes: set[Path] = set()
+    for ufs in por_familia.values():
+        tem_uf = any(uf not in {"br", "brasil"} for uf in ufs)
+        if tem_uf:
+            redundantes.update(ufs.get("brasil", []))
+    return redundantes
+
+
 @dataclass
 class ConvertResult:
     """Counts of a conversion run; ``errors`` holds one message per failure."""
@@ -159,8 +200,20 @@ def resolve_dataset(path: Path) -> str | None:
     return None
 
 
-def resolve_partitions(path: Path) -> tuple[int | None, str]:
-    """Extract integer ano and normalized uf from filename or path."""
+def _uf_partition(val: str, br_partition: str) -> str:
+    if val == "br":
+        return br_partition
+    return _DEFAULT_PARTITION if val == "brasil" else val
+
+
+def resolve_partitions(
+    path: Path, *, br_partition: str = _DEFAULT_PARTITION
+) -> tuple[int | None, str]:
+    """Extract integer ano and normalized uf from filename or path.
+
+    ``BRASIL`` sempre cai em ``__HIVE_DEFAULT_PARTITION__``; ``BR`` cai na
+    partição ``br_partition`` (a mesma, por padrão).
+    """
     year_match = _YEAR_RE.search(path.name)
     ano = int(year_match["ano"]) if year_match else None
     if ano is None and path.parent.name.isdigit() and len(path.parent.name) == 4:
@@ -175,9 +228,7 @@ def resolve_partitions(path: Path) -> tuple[int | None, str]:
         )
         if m_after_year and m_after_year.group("uf").lower() in VALID_UFS:
             val = m_after_year.group("uf").lower()
-            return ano, (
-                "__HIVE_DEFAULT_PARTITION__" if val in {"brasil", "br"} else val
-            )
+            return ano, _uf_partition(val, br_partition)
 
     # 2. Otherwise scan tokens delimited by _ or - in reverse and check
     # against VALID_UFS
@@ -186,7 +237,7 @@ def resolve_partitions(path: Path) -> tuple[int | None, str]:
     for token in reversed(tokens):
         val = token.lower()
         if val in VALID_UFS:
-            uf = "__HIVE_DEFAULT_PARTITION__" if val in {"brasil", "br"} else val
+            uf = _uf_partition(val, br_partition)
             break
 
     return ano, uf
@@ -321,9 +372,23 @@ class LakeConverter:
                             )
                             continue
 
+                        nacional = dataset_id in NACIONAL_DATASETS
+                        repetidos = redundant_brasil(all_members) if nacional else set()
+                        br_part = "br" if nacional else _DEFAULT_PARTITION
                         for member in all_members:
-                            ano_m, uf_m = resolve_partitions(member)
-                            ano_p, uf_p = resolve_partitions(path)
+                            if member in repetidos:
+                                logger.info(
+                                    "%s: %s só repete os arquivos por UF do mesmo "
+                                    "ZIP; não é lido",
+                                    path.name,
+                                    member.name,
+                                )
+                                result.skipped += 1
+                                continue
+                            ano_m, uf_m = resolve_partitions(
+                                member, br_partition=br_part
+                            )
+                            ano_p, uf_p = resolve_partitions(path, br_partition=br_part)
                             ano = ano_m if ano_m is not None else ano_p
                             uf = uf_m if uf_m != "__HIVE_DEFAULT_PARTITION__" else uf_p
                             if ano is None:

@@ -55,9 +55,9 @@ Endereços das redes sociais informadas por cada candidatura no registro. O fetc
 
 ## Origem e coleta
 
-- **O fetcher não baixa este conjunto.** O catálogo do fetcher (`candidatos`, `bens`, `votacao`, `prestacao_contas`) não o inclui, e o bruto conferido em 2026-11-10 não tem nenhum arquivo dele. O conversor `LakeConverter` aceita o id `redes-sociais` e reconhece arquivos pelo prefixo do nome, se alguém os colocar no diretório de entrada.
+- **O fetcher não baixa este conjunto.** O catálogo do fetcher (`candidatos`, `bens`, `votacao`, `prestacao_contas`) não o inclui, e o bruto conferido em 2026-11-10 não tem nenhum arquivo dele. O conversor `LakeConverter` aceita o id `redes-sociais` e reconhece os arquivos pelo prefixo do nome (`rede_social_candidato`, o nome da fonte, ou `redes_sociais_candidatos`), se alguém os colocar no diretório de entrada.
 - A fonte publica `rede_social_candidato_<ano>.zip` em `https://cdn.tse.jus.br/estatistica/sead/odsele/consulta_cand/` (um ZIP por ano). Para este documento foi baixado, diretamente do CDN e só para conferência, o ZIP de 2024 (cabeçalho e LEIAME).
-- **O nome do arquivo não casa com o conversor.** A fonte publica o ZIP como `rede_social_candidato_<ano>.zip` (`consulta_cand/rede_social_candidato_2024.zip`), mas o conversor procura o prefixo `redes_sociais_candidatos`; mesmo se o arquivo fosse baixado, o conversor não o reconheceria pelo nome (verificado em `resolve_dataset`).
+- **Nome do arquivo.** A fonte publica o ZIP como `rede_social_candidato_<ano>.zip`. O conversor reconhece esse nome e o antigo `redes_sociais_candidatos` (corrigido depois da versão 0.3.3, que só reconhecia o antigo).
 
 ## Conteúdo
 

@@ -96,13 +96,13 @@ Descrições do LEIAME oficial do TSE (bem_candidato); onde o texto não define 
 ## No lake
 
 - Dataset `tse/bens-candidatos`, particionado por `ano` e `uf`, um Parquet por CSV de origem.
-- `ano` e `uf` vêm do nome do membro; `BR` e `BRASIL` vão para `uf=__HIVE_DEFAULT_PARTITION__`.
+- `ano` e `uf` vêm do nome do membro; o `BR` vai para `uf=br` e o `BRASIL` só é lido se o ZIP não tiver os arquivos por UF (então vai para `uf=__HIVE_DEFAULT_PARTITION__`).
 - Todas as colunas são texto (inclusive `vr_bem_candidato`, com vírgula decimal). Leitura em Latin-1; os campos de descrição com quebra de linha entre aspas são lidos corretamente: o `bem_candidato_2024_BRASIL.csv` tem 936.515 linhas físicas e 911.317 registros, e o lake tem 911.317.
 - O esquema de referência (`bens-candidatos.schema.json`) tem 19 colunas.
 
 ## Cuidados de uso
 
-- **Dupla contagem: o arquivo consolidado `BRASIL` é lido junto com os de cada UF.** O ZIP traz um CSV por UF, o `BR` (nível nacional, quando existe) e o `BRASIL` (todas as linhas). O conversor lê todos: os de UF vão para `uf=<sigla>` e o `BR` e o `BRASIL` caem na mesma partição `uf=__HIVE_DEFAULT_PARTITION__`. Somar o lake inteiro conta cada linha pelo menos duas vezes (o `BR` entra duas vezes). Para contar uma vez, leia só o arquivo `*_brasil.parquet` de cada `ano` (ele já inclui os de UF e o `BR`) ou só as partições de UF mais o `BR`. Evidência (versão 0.3.3, 2026-11-10): em 2018 o `BRASIL` tem 93.527 linhas, as UFs somam 93.212 e o `BR` 315; em 2020 e 2024 o `BRASIL` iguala a soma das UFs.
+- **Dupla contagem (corrigida; lake gerado até a versão 0.3.3 ainda tem).** O ZIP traz um CSV por UF, o `BR` (registros de âmbito nacional, quando existe) e o `BRASIL` (consolidado que repete as UFs e o `BR`). O conversor atual não lê o `BRASIL` quando o ZIP tem os arquivos por UF: lê as UFs (`uf=<sigla>`) e o `BR` (`uf=br`, com `sg_uf` = `BR`); se o ZIP só tiver o `BRASIL`, ele é lido e vai para `uf=__HIVE_DEFAULT_PARTITION__`. Assim somar o lake inteiro conta cada linha uma vez. Um lake gerado antes da correção tem os Parquets do `BRASIL` em `uf=__HIVE_DEFAULT_PARTITION__` e as linhas em dobro: apague `tse/bens-candidatos/` e reconverta (veja o `CHANGELOG.md`). Evidência (conferida em 2026-11-10 com o conversor atual): em 2018 o `BRASIL` tem 93.527 linhas, as UFs somam 93.212 e o `BR` 315, e o lake passa a ter 93.527; em 2020 e 2024 o `BRASIL` iguala a soma das UFs.
 - **Valor em texto.** `vr_bem_candidato` é texto com vírgula (`20000,00`); troque a vírgula por ponto antes de converter. Todas as linhas de 2022 seguem o padrão `dígitos,dd`.
 - **Soma por pessoa.** Um bem pode ser declarado em mais de uma eleição pela mesma pessoa; some por `sq_candidato` dentro de um `ano`, nunca entre anos. O `sq_candidato` muda a cada eleição.
 - **Descrição livre.** `ds_bem_candidato` é texto digitado pela pessoa candidata e traz, por exemplo, percentuais de participação ("1/3 do imóvel") e aplicações financeiras; o valor não é padronizado.
@@ -110,13 +110,13 @@ Descrições do LEIAME oficial do TSE (bem_candidato); onde o texto não define 
 
 ## Exemplos
 
-Patrimônio declarado mediano das candidaturas ordinárias de 2022 (soma dos bens por candidatura), sem dupla contagem:
+Patrimônio declarado mediano das candidaturas ordinárias de 2022 (soma dos bens por candidatura):
 
 ```python
 import polars as pl
 
 bens = pl.scan_parquet(
-    "lake/tse/bens-candidatos/ano=2022/uf=__HIVE_DEFAULT_PARTITION__/*_brasil.parquet"
+    "lake/tse/bens-candidatos/ano=2022/*/*.parquet", hive_partitioning=True
 )
 patrimonio = (
     bens.filter(pl.col("cd_tipo_eleicao") == "2")

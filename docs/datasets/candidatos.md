@@ -146,13 +146,13 @@ Descrições do LEIAME oficial do TSE (consulta_cand, versão de 2024), resumida
 ## No lake
 
 - Dataset `tse/candidatos`, particionado por `ano` e `uf`, um Parquet por CSV de origem (por membro do ZIP).
-- `ano` e `uf` vêm do nome do membro (`consulta_cand_2022_SP.csv` dá `ano=2022`, `uf=sp`); `BR` e `BRASIL` vão para `uf=__HIVE_DEFAULT_PARTITION__`.
+- `ano` e `uf` vêm do nome do membro (`consulta_cand_2022_SP.csv` dá `ano=2022`, `uf=sp`); o `BR` vai para `uf=br` e o `BRASIL` só é lido se o ZIP não tiver os arquivos por UF (então vai para `uf=__HIVE_DEFAULT_PARTITION__`).
 - Todas as colunas são texto, com os nomes da fonte em minúsculas. O CSV é lido em Latin-1 com aspas duplas e campos com quebra de linha tratados. Nenhum marcador vira nulo.
 - O LEIAME (`leiame.pdf`) é ignorado. O esquema de referência (`candidatos.schema.json`) tem 50 colunas, gerado de uma conversão real dos cinco anos.
 
 ## Cuidados de uso
 
-- **Dupla contagem: o arquivo consolidado `BRASIL` é lido junto com os de cada UF.** O ZIP traz um CSV por UF, o `BR` (nível nacional, quando existe) e o `BRASIL` (todas as linhas). O conversor lê todos: os de UF vão para `uf=<sigla>` e o `BR` e o `BRASIL` caem na mesma partição `uf=__HIVE_DEFAULT_PARTITION__`. Somar o lake inteiro conta cada linha pelo menos duas vezes (o `BR` entra duas vezes: no `BR` e no `BRASIL`). Para contar uma vez, leia só o arquivo `*_brasil.parquet` de cada `ano` (ele já inclui os de UF e o `BR`) ou só as partições de UF mais o `BR`. Evidência (versão 0.3.3, 2026-11-10): em 2018 o `BRASIL` tem 29.287 linhas, as UFs somam 29.255 e o `BR` 32; em 2020 e 2024 o `BRASIL` tem exatamente a soma das UFs (558.804 e 463.926).
+- **Dupla contagem (corrigida; lake gerado até a versão 0.3.3 ainda tem).** O ZIP traz um CSV por UF, o `BR` (registros de âmbito nacional, quando existe) e o `BRASIL` (consolidado que repete as UFs e o `BR`). O conversor atual não lê o `BRASIL` quando o ZIP tem os arquivos por UF: lê as UFs (`uf=<sigla>`) e o `BR` (`uf=br`, com `sg_uf` = `BR`); se o ZIP só tiver o `BRASIL`, ele é lido e vai para `uf=__HIVE_DEFAULT_PARTITION__`. Assim somar o lake inteiro conta cada linha uma vez. Um lake gerado antes da correção tem os Parquets do `BRASIL` em `uf=__HIVE_DEFAULT_PARTITION__` e as linhas em dobro: apague `tse/candidatos/` e reconverta (veja o `CHANGELOG.md`). Evidência (conferida em 2026-11-10 com o conversor atual): em 2018 o `BRASIL` tem 29.287 linhas, as UFs somam 29.255 e o `BR` 32, e o lake passa a ter 29.287; em 2020 e 2024 o `BRASIL` tem exatamente a soma das UFs (558.804 e 463.926).
 - **Marcadores da fonte ficam como texto, não viram nulo.** Segundo o LEIAME, `#NULO` indica campo em branco (`-1` nos numéricos), `#NE` indica informação não registrada naquele ano (`-3`) e `-4` indica dado pessoal não divulgável. O lake os guarda literais; a escrita varia entre arquivos (`#NULO#` em 2018 e `#NULO` em 2024, conferido nas amostras), então teste as duas. Nulo de verdade só aparece em campos vazios.
 - **CPF, título de eleitor e e-mail.** O CPF vem preenchido em 2018, 2020, 2022 e 2026 e `-4` em 2024; o e-mail é sempre `NÃO DIVULGÁVEL` e o título de eleitor traz o número, salvo `-4` em candidaturas não divulgáveis. Para candidaturas não divulgáveis o LEIAME diz que os campos textuais pessoais vêm como `NÃO DIVULGÁVEL`, os numéricos como `-4` e a idade e a data de nascimento ficam em branco. Em 2022 há candidaturas com `ds_genero = NÃO DIVULGÁVEL`.
 - **Situação do registro** só existe até 2022; para 2024 em diante use `ds_sit_tot_turno`, que também traz `#NULO` para quem ainda não teve apuração (por exemplo suplementares e candidaturas sem votos).
@@ -161,13 +161,13 @@ Descrições do LEIAME oficial do TSE (consulta_cand, versão de 2024), resumida
 
 ## Exemplos
 
-Candidaturas ordinárias de 2022 por cargo e gênero, lendo só o consolidado `BRASIL` para não contar duas vezes:
+Candidaturas ordinárias de 2022 por cargo e gênero (cada linha uma vez):
 
 ```python
 import polars as pl
 
 cand = pl.scan_parquet(
-    "lake/tse/candidatos/ano=2022/uf=__HIVE_DEFAULT_PARTITION__/*_brasil.parquet"
+    "lake/tse/candidatos/ano=2022/*/*.parquet", hive_partitioning=True
 )
 resumo = (
     cand.filter(pl.col("cd_tipo_eleicao") == "2")

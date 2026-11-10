@@ -23,6 +23,7 @@ _PREFIX_TO_GROUP: dict[str, str] = {
     "prestacao_de_contas_eleitorais_candidatos": "prestacao-contas",
     "prestacao_contas": "prestacao-contas",
     "redes_sociais_candidatos": "redes-sociais",
+    "rede_social_candidato": "redes-sociais",
     "motivo_cassacao": "motivo-cassacao",
     "consulta_vagas": "vagas",
     "bweb": "boletim-urna",
