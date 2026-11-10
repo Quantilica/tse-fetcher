@@ -1,0 +1,312 @@
+{
+  "fonte": "tse",
+  "dataset": "candidatos",
+  "gerado_em": "2026-11-10T14:03:46+00:00",
+  "particoes": [
+    "ano",
+    "uf"
+  ],
+  "colunas": [
+    {
+      "nome": "dt_geracao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "hh_geracao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ano_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_tipo_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_tipo_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nr_turno",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "dt_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "tp_abrangencia",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sg_uf",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sg_ue",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_ue",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_cargo",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_cargo",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sq_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nr_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_urna_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_social_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nr_cpf_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_email",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_situacao_candidatura",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_situacao_candidatura",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "tp_agremiacao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nr_partido",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sg_partido",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_partido",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nr_federacao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_federacao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sg_federacao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_composicao_federacao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sq_coligacao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_coligacao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_composicao_coligacao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sg_uf_nascimento",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "dt_nascimento",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nr_titulo_eleitoral_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_genero",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_genero",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_grau_instrucao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_grau_instrucao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_estado_civil",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_estado_civil",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_cor_raca",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_cor_raca",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_ocupacao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_ocupacao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_sit_tot_turno",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_sit_tot_turno",
+      "tipos": [
+        "string"
+      ]
+    }
+  ],
+  "arquivos": 141
+}

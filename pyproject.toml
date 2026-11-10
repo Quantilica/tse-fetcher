@@ -66,6 +66,7 @@ dev = [
     # host já traz. Piso = 0.10.0, primeira versão com CheckPlan/check/from-plan
     # (mesma assinatura usada aqui).
     "quantilica-cli>=0.15.0",
+    "quantilica-core[docs]>=0.18.0",
     "typer>=0.15.0",
     "rich>=13.0.0",
 ]

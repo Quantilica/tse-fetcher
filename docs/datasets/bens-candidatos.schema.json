@@ -1,0 +1,126 @@
+{
+  "fonte": "tse",
+  "dataset": "bens-candidatos",
+  "gerado_em": "2026-11-10T14:03:46+00:00",
+  "particoes": [
+    "ano",
+    "uf"
+  ],
+  "colunas": [
+    {
+      "nome": "dt_geracao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "hh_geracao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ano_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_tipo_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_tipo_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "dt_eleicao",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sg_uf",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sg_ue",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nm_ue",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "sq_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "nr_ordem_bem_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "cd_tipo_bem_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_tipo_bem_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "ds_bem_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "vr_bem_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "dt_ult_atual_bem_candidato",
+      "tipos": [
+        "string"
+      ]
+    },
+    {
+      "nome": "hh_ult_atual_bem_candidato",
+      "tipos": [
+        "string"
+      ]
+    }
+  ],
+  "arquivos": 141
+}
