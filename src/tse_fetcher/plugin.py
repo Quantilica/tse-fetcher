@@ -11,6 +11,7 @@ from quantilica.cli.sdk import CheckPlan, CheckPlanItem, FetcherApp
 from quantilica.cli.ui import expand_years_cli, get_console, setup_rich_logging
 from quantilica.core.exceptions import StorageError
 from quantilica.core.files import write_text_atomic
+from quantilica.core.registry import FetcherInfo
 from quantilica.core.sync import FreshnessPolicy
 from rich.panel import Panel
 from rich.progress import (
@@ -74,6 +75,15 @@ def tse_path_builder(
 fetcher = FetcherApp(
     name="tse-fetcher",
     help="Dados eleitorais do TSE (Tribunal Superior Eleitoral).",
+    info=FetcherInfo(
+        id="tse",
+        nome="TSE - Dados Abertos Eleitorais",
+        orgao="Tribunal Superior Eleitoral (TSE)",
+        licenca="Creative Commons Atribuição (CC BY)",
+        homepage="https://dadosabertos.tse.jus.br",
+        cadencia="irregular",
+        dominio="judiciario",
+    ),
     groups_dict=GROUPS,
     aliases_dict={},
     list_datasets=tse_list_datasets,
