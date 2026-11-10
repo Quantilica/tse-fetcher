@@ -7,6 +7,8 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+## [0.4.0] - 2026-11-10
+
 ### Adicionado
 - `docs/`: documentação dos dados conforme a norma, com uma página por dataset (12) e o esquema de referência dos quatro que o fetcher baixa e converte (`candidatos`, `bens-candidatos`, `votacao-munzona` e `prestacao-contas`). Os oito restantes ficam como `so-bruto`: o conversor os reconhece, mas o fetcher não os baixa. `tests/test_docs.py` verifica a pasta.
 
