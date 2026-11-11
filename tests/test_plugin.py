@@ -10,6 +10,7 @@ from quantilica.cli.sdk import CheckPlan, FetcherApp
 from typer.testing import CliRunner
 
 from tse_fetcher import plugin as plugin_module
+from tse_fetcher.client import TseClient
 from tse_fetcher.plugin import app, fetcher
 
 runner = CliRunner()
@@ -283,3 +284,63 @@ def test_sync_from_plan_sem_force_mantem_force_falso(fake_http, tmp_path) -> Non
     assert result.exit_code == 0, result.output
     assert len(fake_http.urls) == len(data["items"]) - 1 > 0
     assert all(kw.get("force") is False for kw in fake_http.kwargs)
+
+
+def _fake_download_one(ok_por_ano: dict[int, int]):
+    """``_download_one`` falso: devolve ``(ok, failed)`` conforme o ano do item."""
+
+    def fake(self, dataset, ano, uf, output_dir, force):  # noqa: ANN001
+        ok = ok_por_ano[ano]
+        return (ok, 1 - ok)
+
+    return fake
+
+
+def test_sync_exit_code_helper() -> None:
+    assert plugin_module.sync_exit_code(3, 0) == 0
+    assert plugin_module.sync_exit_code(2, 1) == plugin_module.EXIT_SYNC_PARTIAL == 3
+    assert plugin_module.sync_exit_code(0, 2) == 1
+
+
+@pytest.mark.parametrize(
+    ("resultado", "codigo"),
+    [({2020: 1, 2022: 1}, 0), ({2020: 1, 2022: 0}, 3), ({2020: 0, 2022: 0}, 1)],
+)
+def test_sync_sai_com_codigo_conforme_as_falhas(
+    fake_http, tmp_path, monkeypatch, resultado, codigo
+) -> None:
+    """0 sem falhas, 3 se parte baixou e parte falhou, 1 se nada baixou."""
+    monkeypatch.setattr(TseClient, "_download_one", _fake_download_one(resultado))
+    result = runner.invoke(
+        app, ["sync", "candidatos", "-y", "2020", "-y", "2022", "-o", str(tmp_path)]
+    )
+    assert result.exit_code == codigo, result.output
+
+
+def test_sync_from_plan_com_falha_parcial_sai_com_tres(
+    fake_http, tmp_path, monkeypatch
+) -> None:
+    check = runner.invoke(
+        app,
+        [
+            "check",
+            "candidatos",
+            "-y",
+            "2020",
+            "-y",
+            "2022",
+            "-o",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+    assert check.exit_code == 0, check.output
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(check.output, encoding="utf-8")
+    monkeypatch.setattr(
+        TseClient, "_download_one", _fake_download_one({2020: 1, 2022: 0})
+    )
+    result = runner.invoke(
+        app, ["sync", "--from-plan", str(plan_file), "-o", str(tmp_path)]
+    )
+    assert result.exit_code == 3, result.output

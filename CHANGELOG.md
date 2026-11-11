@@ -13,6 +13,9 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 ### Alterado
 - Requer `quantilica-core>=0.19.0` (e `quantilica-cli>=0.17.0` como host).
 
+### Corrigido
+- `sync` (com ou sem `--from-plan`) não sai mais com código 0 quando algum arquivo falha: sai com `3` se parte dos arquivos baixou e parte falhou, com `1` se nada baixou e com `0` sem falhas, o mesmo contrato do `sync` dos demais fetchers.
+
 ## [0.4.0] - 2026-11-10
 
 ### Adicionado

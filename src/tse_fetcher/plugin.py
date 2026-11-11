@@ -124,6 +124,19 @@ def cmd_list() -> None:
         )
 
 
+# Mesmo contrato do ``sync`` do ``FetcherApp`` (quantilica-cli >= 0.19.0,
+# ``EXIT_SYNC_PARTIAL``): 3 = parte dos arquivos baixou e parte falhou; 1 = nada
+# baixou; 0 = sem falhas. Definido aqui para não exigir a versão nova do host.
+EXIT_SYNC_PARTIAL = 3
+
+
+def sync_exit_code(ok: int, failed: int) -> int:
+    """Código de saída do ``sync`` dados os itens baixados e os que falharam."""
+    if not failed:
+        return 0
+    return EXIT_SYNC_PARTIAL if ok > 0 else 1
+
+
 def cmd_sync(
     datasets: Annotated[
         list[str] | None,
@@ -201,6 +214,8 @@ def cmd_sync(
             console.print(f"[yellow]⚠[/yellow]  {ok} OK · [red]{failed} falha(s)[/red]")
         else:
             console.print(f"[green]✓[/green]  [bold]{ok}[/bold] itens baixados.")
+        if code := sync_exit_code(ok, failed):
+            raise typer.Exit(code)
         return
 
     anos = expand_years_cli(years, default_range=DEFAULT_YEAR_RANGE, console=console)
@@ -283,6 +298,8 @@ def cmd_sync(
             f"[green]✓[/green]  [bold]{ok}[/bold] itens baixados."
             f" [dim]{skipped} skip[/dim]"
         )
+    if code := sync_exit_code(ok, failed):
+        raise typer.Exit(code)
 
 
 def cmd_check(
