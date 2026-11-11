@@ -1,6 +1,6 @@
 [project]
 name = "tse-fetcher"
-version = "0.4.0"
+version = "0.5.0"
 description = "Coletor de dados eleitorais do TSE (Tribunal Superior Eleitoral)"
 readme = "README.md"
 authors = [
