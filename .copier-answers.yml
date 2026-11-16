@@ -1,0 +1,17 @@
+_commit: v0.2.1
+_src_path: /home/dk/code/Quantilica/fetcher-template
+author_email: daniel@dkko.me
+author_name: Komesu, D.K.
+cadencia: irregular
+description: Coletor de dados eleitorais do TSE (Tribunal Superior Eleitoral)
+domain: politica
+dominio: judiciario
+has_lake: true
+homepage: https://dadosabertos.tse.jus.br
+licenca: Creative Commons Atribuição (CC BY)
+orgao: Tribunal Superior Eleitoral (TSE)
+package_name: tse-fetcher
+package_slug: tse_fetcher
+protocol: http
+source_id: tse
+source_name: TSE - Dados Abertos Eleitorais
