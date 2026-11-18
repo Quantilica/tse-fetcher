@@ -269,3 +269,52 @@ def test_zip_sem_erro_de_nome_pula_sem_ler(tmp_path: Path, leituras: list[str]) 
     r2 = converter.convert(raw, lake, datasets=["prestacao-contas"])
     assert (r2.converted, r2.skipped, r2.errors) == (0, 2, [])
     assert leituras == []
+
+
+def _tags_do_lake(lake: Path) -> set[str]:
+    import pyarrow.parquet as pq
+
+    return {
+        pq.read_metadata(f).metadata[b"quantilica.converter"].decode()
+        for f in (lake / "tse" / "candidatos").rglob("*.parquet")
+    }
+
+
+def test_revisao_do_layout_diferente_reconverte_o_zip(
+    tmp_path: Path, leituras: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Outra ``LAKE_LAYOUT_REVISION`` no rodapé: o ZIP é aberto e regravado (e o
+    rodapé passa à nova revisão); com a mesma, pula sem ler o bruto."""
+    raw, lake = _bruto(tmp_path), tmp_path / "lake"
+    r1 = converter.convert(raw, lake, datasets=["candidatos"])
+    assert (r1.converted, r1.skipped, r1.errors) == (2, 0, [])
+    rev = lake_mod.LAKE_LAYOUT_REVISION
+    assert _tags_do_lake(lake) == {f"tse-fetcher layout-{rev}"}
+
+    leituras.clear()
+    r2 = converter.convert(raw, lake, datasets=["candidatos"])
+    assert (r2.converted, r2.skipped, r2.errors) == (0, 2, [])
+    assert leituras == []
+
+    monkeypatch.setattr(lake_mod, "LAKE_LAYOUT_REVISION", rev + 1)
+    r3 = converter.convert(raw, lake, datasets=["candidatos"])
+    assert (r3.converted, r3.skipped, r3.errors) == (2, 0, [])
+    assert leituras
+    assert _tags_do_lake(lake) == {f"tse-fetcher layout-{rev + 1}"}
+
+    leituras.clear()
+    r4 = converter.convert(raw, lake, datasets=["candidatos"])
+    assert (r4.converted, r4.skipped, r4.errors) == (0, 2, [])
+    assert leituras == []
+
+
+def test_versao_do_pacote_nao_reconverte(
+    tmp_path: Path, leituras: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw, lake = _bruto(tmp_path), tmp_path / "lake"
+    converter.convert(raw, lake, datasets=["candidatos"])
+    monkeypatch.setattr(lake_mod, "__version__", "99.0.0")
+    leituras.clear()
+    r = converter.convert(raw, lake, datasets=["candidatos"])
+    assert (r.converted, r.skipped, r.errors) == (0, 2, [])
+    assert leituras == []

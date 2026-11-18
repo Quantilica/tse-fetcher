@@ -48,6 +48,15 @@ logger = logging.getLogger(__name__)
 
 SOURCE_ID = "tse"
 
+#: Revisão do layout do lake para os ZIPs: incremente SÓ quando mudar como chaves,
+#: partições ou o filtro de membros são derivados (``resolve_partitions``,
+#: ``_partitions``, ``composite_file_key``, quais membros do ZIP viram saída). É
+#: gravada no rodapé de cada Parquet de ZIP (``quantilica.converter``) e conferida
+#: antes do pulo: com outra revisão no lake, o ZIP é reconvertido. Não é a versão
+#: do pacote, que muda sem mexer no layout. A reconversão não apaga as saídas de
+#: chaves antigas.
+LAKE_LAYOUT_REVISION = 1
+
 # Dialeto dos CSVs do TSE: campos entre aspas duplas, aspa interna dobrada e
 # quebra de linha dentro do campo (descricao de bem, historico de prestacao de
 # contas). DuckDB so le campo que atravessa linhas com uma thread.
@@ -273,6 +282,11 @@ def count_csv_records(path: Path) -> int:
     return max(registros - 1, 0)
 
 
+def _zip_converter_tag() -> str:
+    """Tag gravada nos Parquets de ZIP: só a revisão do layout, nunca a versão."""
+    return f"tse-fetcher layout-{LAKE_LAYOUT_REVISION}"
+
+
 def _zip_em_dia(writer: LakeWriter, zip_path: Path) -> int | None:
     """Quantas saídas do ZIP já estão no lake, sem abrir nem extrair o ZIP.
 
@@ -281,21 +295,39 @@ def _zip_em_dia(writer: LakeWriter, zip_path: Path) -> int | None:
     lenta) é o que o build sem mudança deve evitar. A conversão declara ao lake,
     antes da primeira gravação, todas as saídas do ZIP (``origin_outputs``); aqui,
     ``LakeWriter.origin_complete`` confirma, só pelos rodapés e pelo sidecar, que
-    todas existem com o sha256 atual e a mesma versão de layout.
+    todas existem com o sha256 atual, a mesma versão de layout e a revisão atual
+    do layout do conversor (``LAKE_LAYOUT_REVISION``).
 
     Devolve o número de saídas, ou ``None`` quando o ZIP não está completo no
     lake (conversão interrompida, membro que falhou, membro com erro que se repete
-    a cada build, Parquet gravado antes da declaração, outro sha256): aí o ZIP é
-    aberto e convertido como antes. Com ``force``, sempre ``None``.
+    a cada build, Parquet gravado antes da declaração, outro sha256, outra
+    revisão): aí o ZIP é aberto e convertido como antes. Com ``force``, sempre
+    ``None``.
 
-    A declaração não enxerga mudança no código que deriva chaves ou partições
-    (``resolve_partitions``, ``_partitions``, ``composite_file_key``): quem a
-    mudar precisa reconverter com ``force``.
+    Os nomes dos membros e suas partições só se conhecem abrindo o ZIP, então
+    ``expected=`` não cabe aqui.
     """
-    if writer.force or not writer.origin_complete(zip_path):
+    if writer.force or not writer.origin_complete(
+        zip_path, converter=_zip_converter_tag()
+    ):
         return None
     saidas = writer.origin_outputs(zip_path)
     return len(saidas) if saidas else None
+
+
+def _revisao_do_layout_velha(writer: LakeWriter, zip_path: Path) -> bool:
+    """O ZIP está completo no lake, mas gravado em outra revisão do layout.
+
+    Nesse caso o conteúdo antigo ainda "está em dia" para o ``is_current`` de cada
+    membro (mesmo sha256, mesma declaração), que pularia a regravação e deixaria a
+    revisão velha no rodapé para sempre: o ZIP seria aberto a cada build. A
+    conversão regrava os membros, então, com um escritor ``force``.
+    """
+    if writer.force:
+        return False
+    return writer.origin_complete(zip_path) and not writer.origin_complete(
+        zip_path, converter=_zip_converter_tag()
+    )
 
 
 @dataclass
@@ -492,7 +524,18 @@ class LakeConverter:
 
                 elif suffix == ".zip":
                     # Em dia no lake: pula antes de abrir o ZIP no bruto.
-                    em_dia = _zip_em_dia(writer, path)
+                    zip_writer = writer
+                    try:
+                        em_dia = _zip_em_dia(writer, path)
+                        if em_dia is None and _revisao_do_layout_velha(writer, path):
+                            zip_writer = LakeWriter(
+                                writer.dataset_dir, writer.descriptor, force=True
+                            )
+                    except Exception as exc:  # noqa: BLE001 - na dúvida, converte como antes
+                        logger.warning(
+                            "%s: pré-checagem do lake falhou (%s)", path.name, exc
+                        )
+                        em_dia = None
                     if em_dia is not None:
                         result.skipped += em_dia
                         continue
@@ -566,12 +609,12 @@ class LakeConverter:
                             if tipo == "erro":
                                 result.errors.append(texto)
                                 continue
-                            written = writer.write_duckdb(
+                            written = zip_writer.write_duckdb(
                                 member,
                                 partitions=part_vals,
                                 file_key_name=texto,
                                 src_origin=path,
-                                converter=f"tse-fetcher {__version__}",
+                                converter=_zip_converter_tag(),
                                 origin_outputs=declaradas,
                                 **_CSV_DIALECT,
                             )
