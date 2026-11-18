@@ -26,14 +26,7 @@ from pathlib import Path
 
 try:
     import duckdb
-    import polars as pl
-    from quantilica.analytics.lake import (
-        META_FILE_KEY,
-        LakeError,
-        LakeWriter,
-        origin_matches,
-        sha256_file,
-    )
+    from quantilica.analytics.lake import LakeError, LakeWriter, output_id
     from quantilica.core.files import decompress_archive
     from quantilica.core.lake import (
         DatasetDescriptor,
@@ -280,58 +273,29 @@ def count_csv_records(path: Path) -> int:
     return max(registros - 1, 0)
 
 
-def _indice_lake(dataset_dir: Path) -> list[Path]:
-    """Parquets do dataset no lake (uma listagem de diretórios por conversão)."""
-    if not dataset_dir.is_dir():
-        return []
-    return sorted(dataset_dir.rglob("*.parquet"))
-
-
-def _membros_em_dia(
-    writer: LakeWriter, zip_path: Path, parquets: list[Path]
-) -> int | None:
-    """Quantos membros do ZIP já estão em dia no lake, sem abrir nem extrair o ZIP.
+def _zip_em_dia(writer: LakeWriter, zip_path: Path) -> int | None:
+    """Quantas saídas do ZIP já estão no lake, sem abrir nem extrair o ZIP.
 
     A partição de cada membro (``uf``, ``tabela``) sai do nome do membro dentro
     do ZIP, que só se conhece abrindo-o, e abri-lo no bruto (montagem de rede
-    lenta) é o que o build sem mudança deve evitar. Em vez disso, parte dos
-    Parquets do lake cujo nome começa com a chave do ZIP (``<zip>__<membro>``)
-    e cujo rodapé registra este ZIP como origem (``quantilica.origin_file``),
-    e confere cada chave com ``origin_matches`` (sha256 do ZIP via sidecar,
-    versão do layout, partes completas) na pasta onde o Parquet está.
+    lenta) é o que o build sem mudança deve evitar. A conversão declara ao lake,
+    antes da primeira gravação, todas as saídas do ZIP (``origin_outputs``); aqui,
+    ``LakeWriter.origin_complete`` confirma, só pelos rodapés e pelo sidecar, que
+    todas existem com o sha256 atual e a mesma versão de layout.
 
-    Devolve o número de membros em dia, ou ``None`` quando não há nenhum
-    registrado ou algum está desatualizado: aí o ZIP é aberto e convertido como
-    antes. Com ``force``, sempre ``None``.
+    Devolve o número de saídas, ou ``None`` quando o ZIP não está completo no
+    lake (conversão interrompida, membro que falhou, membro com erro que se repete
+    a cada build, Parquet gravado antes da declaração, outro sha256): aí o ZIP é
+    aberto e convertido como antes. Com ``force``, sempre ``None``.
+
+    A declaração não enxerga mudança no código que deriva chaves ou partições
+    (``resolve_partitions``, ``_partitions``, ``composite_file_key``): quem a
+    mudar precisa reconverter com ``force``.
     """
-    if writer.force:
+    if writer.force or not writer.origin_complete(zip_path):
         return None
-    prefixo = file_key(zip_path).lower() + "__"
-    por_chave: dict[str, Path] = {}
-    for parquet in parquets:
-        if not parquet.name.startswith(prefixo):
-            continue
-        try:
-            meta = pl.read_parquet_metadata(parquet)
-        except (OSError, pl.exceptions.PolarsError):
-            return None
-        if meta.get("quantilica.origin_file") != zip_path.name:
-            continue
-        chave = meta.get(META_FILE_KEY)
-        if chave:
-            por_chave[chave] = parquet.parent
-    if not por_chave:
-        return None
-    digest = sha256_file(zip_path)
-    for chave, pasta in por_chave.items():
-        if not origin_matches(
-            pasta,
-            chave,
-            digest,
-            layout_version=writer.descriptor.layout_version,
-        ):
-            return None
-    return len(por_chave)
+    saidas = writer.origin_outputs(zip_path)
+    return len(saidas) if saidas else None
 
 
 @dataclass
@@ -469,7 +433,6 @@ class LakeConverter:
                 result.skipped += 1
 
         writers: dict[str, LakeWriter] = {}
-        indices: dict[str, list[Path]] = {}
 
         for path in files:
             dataset_id = resolve_dataset(path)
@@ -529,11 +492,7 @@ class LakeConverter:
 
                 elif suffix == ".zip":
                     # Em dia no lake: pula antes de abrir o ZIP no bruto.
-                    if dataset_id not in indices:
-                        indices[dataset_id] = _indice_lake(
-                            lake_dir / SOURCE_ID / dataset_id
-                        )
-                    em_dia = _membros_em_dia(writer, path, indices[dataset_id])
+                    em_dia = _zip_em_dia(writer, path)
                     if em_dia is not None:
                         result.skipped += em_dia
                         continue
@@ -558,9 +517,16 @@ class LakeConverter:
                         nacional = dataset_id in NACIONAL_DATASETS
                         repetidos = redundant_brasil(all_members) if nacional else {}
                         br_part = "br" if nacional else _DEFAULT_PARTITION
+                        # Plano de todos os membros, sem ler nenhum: dá as saídas
+                        # do ZIP antes da primeira gravação (iguais a cada execução
+                        # para os mesmos bytes). Membro com erro de nome (sem ano,
+                        # tabela não reconhecida) entra como saída que nunca existe:
+                        # o erro volta a ser reportado a cada build, como sempre.
+                        plano: list[tuple[str, Path, str, dict | None]] = []
+                        saidas: set[str] = set()
                         for member in all_members:
                             if member in repetidos:
-                                _conferir_brasil(path, member, repetidos[member])
+                                plano.append(("brasil", member, "", None))
                                 continue
                             ano_m, uf_m = resolve_partitions(
                                 member, br_partition=br_part
@@ -569,26 +535,44 @@ class LakeConverter:
                             ano = ano_m if ano_m is not None else ano_p
                             uf = uf_m if uf_m != "__HIVE_DEFAULT_PARTITION__" else uf_p
                             if ano is None:
-                                result.errors.append(
+                                sem_ano = (
                                     f"{member.name}: não foi possível inferir o ano"
                                 )
+                                plano.append(("erro", member, sem_ano, None))
+                                saidas.add(f"!erro/{member.name}")
                                 continue
                             part_vals = _partitions(dataset_id, ano, uf, member.name)
                             if part_vals is None:
-                                result.errors.append(
-                                    _ERRO_TABELA.format(
-                                        nome=f"{path.name}: {member.name}"
+                                plano.append(
+                                    (
+                                        "erro",
+                                        member,
+                                        _ERRO_TABELA.format(
+                                            nome=f"{path.name}: {member.name}"
+                                        ),
+                                        None,
                                     )
                                 )
+                                saidas.add(f"!erro/{member.name}")
                                 continue
-                            member_name = member.stem
-                            key = composite_file_key(path, member_name).lower()
+                            key = composite_file_key(path, member.stem).lower()
+                            plano.append(("ok", member, key, part_vals))
+                            saidas.add(output_id(part_vals, key))
+                        declaradas = sorted(saidas)
+                        for tipo, member, texto, part_vals in plano:
+                            if tipo == "brasil":
+                                _conferir_brasil(path, member, repetidos[member])
+                                continue
+                            if tipo == "erro":
+                                result.errors.append(texto)
+                                continue
                             written = writer.write_duckdb(
                                 member,
                                 partitions=part_vals,
-                                file_key_name=key,
+                                file_key_name=texto,
                                 src_origin=path,
                                 converter=f"tse-fetcher {__version__}",
+                                origin_outputs=declaradas,
                                 **_CSV_DIALECT,
                             )
                             if written.status == "skipped":

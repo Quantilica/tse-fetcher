@@ -46,7 +46,7 @@ tse-fetcher = "tse_fetcher.cli:main"
 analysis = [
     "duckdb>=1.0.0",
     "polars>=1.0.0",
-    "quantilica-analytics>=0.10.0",
+    "quantilica-analytics>=0.15.0",
 ]
 
 [project.entry-points."quantilica.fetchers"]

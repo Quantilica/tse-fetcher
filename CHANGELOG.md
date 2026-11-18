@@ -9,6 +9,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ### Corrigido
 - `lake`: o build sem mudança não lê mais o ZIP do bruto. Antes de abrir e extrair o ZIP, localiza no lake os Parquets gravados a partir dele (pelo rodapé) e, estando todos em dia, só conta `skipped`, sem contar linhas do `BRASIL` nem ler membro algum. O CSV avulso já pulava antes da leitura. Mesma contagem de `converted`/`skipped`/`errors`; `force` e bruto novo seguem convertendo.
+- `lake`: um ZIP só é dado por completo (pulo sem abri-lo) quando todas as suas saídas, declaradas ao lake antes da primeira gravação (`origin_outputs`: uma por membro, a partição e a chave do membro), existem com o sha256 atual (`LakeWriter.origin_complete`). Uma conversão interrompida ou um membro que falhou deixa de virar pulo permanente: o ZIP é reaberto e só o que falta é gravado. Membro com erro de nome (sem ano, tabela da prestação de contas não reconhecida) entra na declaração como saída que nunca existe, então o erro volta a ser reportado a cada build, como antes. A busca por `rglob` que mascarava mudança de partição foi removida. Lake gravado sem a declaração reconverte uma vez. `skipped` de um ZIP em dia conta as saídas. Mudança no código que deriva chaves ou partições exige reconverter com `--force`. Exige `quantilica-analytics>=0.15.0`.
 
 ### Alterado
 - CI e infraestrutura alinhados ao template (fetcher-template v0.2.1).
