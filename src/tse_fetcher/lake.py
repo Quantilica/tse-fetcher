@@ -26,7 +26,14 @@ from pathlib import Path
 
 try:
     import duckdb
-    from quantilica.analytics.lake import LakeError, LakeWriter
+    import polars as pl
+    from quantilica.analytics.lake import (
+        META_FILE_KEY,
+        LakeError,
+        LakeWriter,
+        origin_matches,
+        sha256_file,
+    )
     from quantilica.core.files import decompress_archive
     from quantilica.core.lake import (
         DatasetDescriptor,
@@ -273,6 +280,60 @@ def count_csv_records(path: Path) -> int:
     return max(registros - 1, 0)
 
 
+def _indice_lake(dataset_dir: Path) -> list[Path]:
+    """Parquets do dataset no lake (uma listagem de diretórios por conversão)."""
+    if not dataset_dir.is_dir():
+        return []
+    return sorted(dataset_dir.rglob("*.parquet"))
+
+
+def _membros_em_dia(
+    writer: LakeWriter, zip_path: Path, parquets: list[Path]
+) -> int | None:
+    """Quantos membros do ZIP já estão em dia no lake, sem abrir nem extrair o ZIP.
+
+    A partição de cada membro (``uf``, ``tabela``) sai do nome do membro dentro
+    do ZIP, que só se conhece abrindo-o, e abri-lo no bruto (montagem de rede
+    lenta) é o que o build sem mudança deve evitar. Em vez disso, parte dos
+    Parquets do lake cujo nome começa com a chave do ZIP (``<zip>__<membro>``)
+    e cujo rodapé registra este ZIP como origem (``quantilica.origin_file``),
+    e confere cada chave com ``origin_matches`` (sha256 do ZIP via sidecar,
+    versão do layout, partes completas) na pasta onde o Parquet está.
+
+    Devolve o número de membros em dia, ou ``None`` quando não há nenhum
+    registrado ou algum está desatualizado: aí o ZIP é aberto e convertido como
+    antes. Com ``force``, sempre ``None``.
+    """
+    if writer.force:
+        return None
+    prefixo = file_key(zip_path).lower() + "__"
+    por_chave: dict[str, Path] = {}
+    for parquet in parquets:
+        if not parquet.name.startswith(prefixo):
+            continue
+        try:
+            meta = pl.read_parquet_metadata(parquet)
+        except (OSError, pl.exceptions.PolarsError):
+            return None
+        if meta.get("quantilica.origin_file") != zip_path.name:
+            continue
+        chave = meta.get(META_FILE_KEY)
+        if chave:
+            por_chave[chave] = parquet.parent
+    if not por_chave:
+        return None
+    digest = sha256_file(zip_path)
+    for chave, pasta in por_chave.items():
+        if not origin_matches(
+            pasta,
+            chave,
+            digest,
+            layout_version=writer.descriptor.layout_version,
+        ):
+            return None
+    return len(por_chave)
+
+
 @dataclass
 class ConvertResult:
     """Counts of a conversion run; ``errors`` holds one message per failure."""
@@ -408,6 +469,7 @@ class LakeConverter:
                 result.skipped += 1
 
         writers: dict[str, LakeWriter] = {}
+        indices: dict[str, list[Path]] = {}
 
         for path in files:
             dataset_id = resolve_dataset(path)
@@ -466,6 +528,15 @@ class LakeConverter:
                         result.converted += 1
 
                 elif suffix == ".zip":
+                    # Em dia no lake: pula antes de abrir o ZIP no bruto.
+                    if dataset_id not in indices:
+                        indices[dataset_id] = _indice_lake(
+                            lake_dir / SOURCE_ID / dataset_id
+                        )
+                    em_dia = _membros_em_dia(writer, path, indices[dataset_id])
+                    if em_dia is not None:
+                        result.skipped += em_dia
+                        continue
                     with tempfile.TemporaryDirectory() as tmp:
                         extracted = decompress_archive(path, Path(tmp))
                         all_members = sorted(
