@@ -463,10 +463,16 @@ def test_prestacao_separa_as_quatro_tabelas_em_particoes(
         "tabela=doador-originario",
         "tabela=receitas",
     ]
-    colunas = {
-        p.name: set(pl.read_parquet(next(p.rglob("*.parquet"))).columns)
-        for p in base.iterdir()
-    }
+    # cada tabela tem um Parquet por UF (AC e SP); todos com as mesmas colunas
+    arquivos = {p.name: sorted(p.rglob("*.parquet")) for p in base.iterdir()}
+    assert {nome: len(lista) for nome, lista in arquivos.items()} == dict.fromkeys(
+        arquivos, 2
+    )
+    colunas = {}
+    for nome, lista in arquivos.items():
+        por_arquivo = [frozenset(pl.read_parquet(a).columns) for a in lista]
+        assert len(set(por_arquivo)) == 1, (nome, por_arquivo)
+        colunas[nome] = set(por_arquivo[0])
     assert colunas["tabela=receitas"] == {"sq_receita", "vr_receita"}
     assert colunas["tabela=doador-originario"] == {"sq_receita", "nm_doador_originario"}
     assert colunas["tabela=despesas-contratadas"] == {
