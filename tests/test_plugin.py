@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import httpx2
 import pytest
@@ -12,6 +13,14 @@ from typer.testing import CliRunner
 from tse_fetcher import plugin as plugin_module
 from tse_fetcher.client import TseClient
 from tse_fetcher.plugin import app, fetcher
+
+_ANSI_AJUDA = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _sem_ansi(texto: str) -> str:
+    """Ajuda sem cores nem quebras: o Rich do CI colore e quebra os nomes das opções."""
+    return "".join(_ANSI_AJUDA.sub("", texto).split())
+
 
 runner = CliRunner()
 
@@ -398,7 +407,7 @@ def test_sync_anuncia_summary_json_na_ajuda() -> None:
     """A opção aparece na ajuda do sync (o host só a repassa se a ajuda a anuncia)."""
     result = runner.invoke(app, ["sync", "--help"])
     assert result.exit_code == 0
-    assert "--summary-json" in result.output
+    assert "--summary-json" in _sem_ansi(result.output)
 
 
 def test_summary_json_sucesso(http_falha, tmp_path) -> None:
@@ -503,8 +512,8 @@ def test_plugin_carrega_em_host_sem_modulo_de_resumo(monkeypatch, tmp_path) -> N
         assert novo.SummaryRecorder is None
         ajuda = runner.invoke(novo.app, ["sync", "--help"])
         assert ajuda.exit_code == 0
-        assert "--summary-json" not in ajuda.output
-        assert "--dry-run" in ajuda.output
+        assert "--summary-json" not in _sem_ansi(ajuda.output)
+        assert "--dry-run" in _sem_ansi(ajuda.output)
         # Sem o módulo o sync segue funcionando (e sai com o código do contrato).
         novo.TseClient = plugin_module.TseClient
         result = runner.invoke(
