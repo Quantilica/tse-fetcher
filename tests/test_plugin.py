@@ -344,3 +344,146 @@ def test_sync_from_plan_com_falha_parcial_sai_com_tres(
         app, ["sync", "--from-plan", str(plan_file), "-o", str(tmp_path)]
     )
     assert result.exit_code == 3, result.output
+
+
+# --- --summary-json (mesmo contrato do ``sync`` do host)
+
+
+class _FakeHttpComFalha(_FakeHttp):
+    """Dublê que mede a transferência e falha nas URLs que contêm ``falha``."""
+
+    def __init__(self, falha: str | None = None) -> None:
+        super().__init__()
+        self.falha = falha
+
+    def download_with_manifest(self, url, target, **kwargs):  # noqa: ANN001
+        if self.falha and self.falha in url:
+            raise OSError("conexão encerrada pelo servidor")
+        progress = kwargs.get("progress")
+        if progress is not None:
+            progress(0, 0)
+            progress(1000, 1000)
+        return super().download_with_manifest(url, target, **kwargs)
+
+
+@pytest.fixture
+def http_falha(monkeypatch):
+    """Fábrica de dublês: ``http_falha("trecho-da-url")`` falha nessa URL."""
+
+    def fabricar(falha: str | None = None) -> _FakeHttpComFalha:
+        fake = _FakeHttpComFalha(falha)
+        original = plugin_module.TseClient
+
+        def make_client(*args, **kwargs):  # noqa: ANN001, ANN002
+            real = original(*args, **kwargs)
+            real.http = fake  # type: ignore[method-assign]
+            return real
+
+        monkeypatch.setattr(plugin_module, "TseClient", make_client)
+        return fake
+
+    return fabricar
+
+
+def _sync_com_resumo(tmp_path, *args):
+    resumo = tmp_path / "pasta" / "resumo.json"
+    result = runner.invoke(
+        app,
+        ["sync", *args, "-o", str(tmp_path / "saida"), "--summary-json", str(resumo)],
+    )
+    return result, json.loads(resumo.read_text(encoding="utf-8"))
+
+
+def test_sync_anuncia_summary_json_na_ajuda() -> None:
+    """A opção aparece na ajuda do sync (o host só a repassa se a ajuda a anuncia)."""
+    result = runner.invoke(app, ["sync", "--help"])
+    assert result.exit_code == 0
+    assert "--summary-json" in result.output
+
+
+def test_summary_json_sucesso(http_falha, tmp_path) -> None:
+    http_falha()
+    result, resumo = _sync_com_resumo(tmp_path, "candidatos", "-y", "2022")
+    assert result.exit_code == 0, result.output
+    assert resumo["schema_version"] == 1
+    assert resumo["fetcher"] == "tse-fetcher"
+    assert resumo["command"] == "sync"
+    assert resumo["status"] == "success"
+    assert resumo["exit_code"] == 0
+    assert resumo["dry_run"] is False
+    assert (resumo["total"], resumo["succeeded"], resumo["failed"]) == (1, 1, 0)
+    assert (resumo["downloaded"], resumo["skipped"]) == (1, 0)
+    assert resumo["bytes_downloaded"] == 1000
+    assert resumo["errors"] == []
+
+
+def test_summary_json_parcial_lista_arquivo_e_causa(http_falha, tmp_path) -> None:
+    http_falha("bem_candidato_2022")
+    result, resumo = _sync_com_resumo(tmp_path, "bens", "candidatos", "-y", "2022")
+    assert result.exit_code == 3, result.output
+    assert resumo["status"] == "partial"
+    assert resumo["exit_code"] == 3
+    assert (resumo["total"], resumo["succeeded"], resumo["failed"]) == (2, 1, 1)
+    [erro] = resumo["errors"]
+    assert erro["id"] == "bem_candidato_2022.zip"
+    assert "OSError" in erro["message"]
+    assert "conexão encerrada" in erro["message"]
+    # O resumo na tela também diz qual arquivo falhou e por quê.
+    assert "bem_candidato_2022.zip" in result.output
+    assert "OSError" in result.output
+
+
+def test_summary_json_tudo_falha_sai_com_um(http_falha, tmp_path) -> None:
+    http_falha("consulta_cand")
+    result, resumo = _sync_com_resumo(tmp_path, "candidatos", "-y", "2022")
+    assert result.exit_code == 1, result.output
+    assert resumo["status"] == "failed"
+    assert (resumo["succeeded"], resumo["failed"]) == (0, 1)
+
+
+def test_summary_json_dry_run(http_falha, tmp_path) -> None:
+    fake = http_falha()
+    result, resumo = _sync_com_resumo(tmp_path, "bens", "-y", "2022", "--dry-run")
+    assert result.exit_code == 0, result.output
+    assert fake.urls == []
+    assert resumo["dry_run"] is True
+    assert (resumo["total"], resumo["succeeded"], resumo["failed"]) == (1, 0, 0)
+
+
+def test_summary_json_dataset_invalido(http_falha, tmp_path) -> None:
+    http_falha()
+    result, resumo = _sync_com_resumo(tmp_path, "foofetch", "-y", "2022")
+    assert result.exit_code == 1
+    assert resumo["status"] == "failed"
+    assert "foofetch" in resumo["error"]
+
+
+def test_summary_json_from_plan(http_falha, tmp_path) -> None:
+    http_falha("bem_candidato_2022")
+    check = runner.invoke(
+        app,
+        ["check", "bens", "candidatos", "-y", "2022", "-o", str(tmp_path), "--json"],
+    )
+    assert check.exit_code == 0, check.output
+    plano = tmp_path / "plan.json"
+    plano.write_text(check.output, encoding="utf-8")
+    result, resumo = _sync_com_resumo(tmp_path, "--from-plan", str(plano))
+    assert result.exit_code == 3, result.output
+    assert (resumo["total"], resumo["succeeded"], resumo["failed"]) == (2, 1, 1)
+    assert resumo["errors"][0]["id"] == "bem_candidato_2022.zip"
+
+
+def test_sync_sem_summary_json_nao_grava_nada(http_falha, tmp_path) -> None:
+    http_falha()
+    result = runner.invoke(
+        app, ["sync", "candidatos", "-y", "2022", "-o", str(tmp_path / "saida")]
+    )
+    assert result.exit_code == 0, result.output
+    assert not list(tmp_path.glob("**/*.json"))
+
+
+def test_cliente_do_plugin_usa_o_cliente_http_padrao_do_host(monkeypatch) -> None:
+    """O sync/check do plugin usam o ``default_client()`` do host (env e CA)."""
+    sentinela = object()
+    monkeypatch.setattr(plugin_module, "default_client", lambda: sentinela)
+    assert plugin_module._new_client().http is sentinela

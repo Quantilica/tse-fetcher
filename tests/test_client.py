@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import io
+import logging
+import zipfile
 from pathlib import Path
 
 import httpx2
@@ -327,3 +330,133 @@ def test_download_items_baixa_lista_planejada(tmp_path) -> None:
     assert failed == 0
     assert ok == len(items) > 0
     assert len(rec.calls) == len(items)
+
+
+# --- Conferência do conteúdo e escrita atômica (cliente HTTP real, só a rede é dublê)
+
+
+def _zip_valido() -> bytes:
+    """Bytes de um ZIP de verdade, com um membro."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("consulta_cand_2022_SP.csv", "a;b\n1;2\n" * 50)
+    return buf.getvalue()
+
+
+def _cliente_resposta(content: bytes, *, content_type: str = "application/zip"):
+    """TseClient real (um só tentativa) cujo GET devolve ``content`` com 200."""
+
+    def handler(request):
+        headers = {
+            "Content-Length": str(len(content)),
+            "Content-Type": content_type,
+            "Last-Modified": "Sat, 28 Nov 2026 06:00:00 GMT",
+        }
+        if request.method == "HEAD":
+            return httpx2.Response(200, headers=headers)
+        return httpx2.Response(200, content=content, headers=headers)
+
+    return TseClient(attempts=1, transport=httpx2.MockTransport(handler))
+
+
+def test_download_grava_zip_valido_com_manifest(tmp_path) -> None:
+    """Um ZIP íntegro é gravado no destino, com o sidecar de proveniência."""
+    bom = _zip_valido()
+    c = _cliente_resposta(bom)
+    path = c.download("candidatos", 2022, output_dir=tmp_path)
+    assert path == tmp_path / "consulta_cand_2022.zip"
+    assert path.read_bytes() == bom
+    assert (tmp_path / "consulta_cand_2022.zip.manifest.json").exists()
+
+
+@pytest.mark.parametrize(
+    "resposta",
+    [
+        b"<!DOCTYPE html><html><body>Pagina de bloqueio</body></html>",
+        b"The requested URL was rejected. Please consult with your administrator.",
+        _zip_valido()[:-40],  # truncado: sem o diretório central
+    ],
+    ids=["html-com-200", "bloqueio-waf", "zip-truncado"],
+)
+def test_download_resposta_ruim_nao_substitui_o_arquivo_bom(tmp_path, resposta) -> None:
+    """HTML, bloqueio ou ZIP truncado com status 200 não vira o ZIP do destino.
+
+    O arquivo que já estava lá permanece intacto e nenhum temporário sobra.
+    """
+    bom = _zip_valido()
+    destino = tmp_path / "consulta_cand_2022.zip"
+    destino.write_bytes(bom)
+    c = _cliente_resposta(resposta, content_type="text/html")
+    with pytest.raises(Exception) as excinfo:  # noqa: PT011
+        c.download("candidatos", 2022, output_dir=tmp_path, force=True)
+    assert not isinstance(excinfo.value, ValueError)
+    assert destino.read_bytes() == bom
+    assert sorted(p.name for p in tmp_path.iterdir()) == [destino.name]
+
+
+def test_download_item_com_resposta_ruim_vira_falha_registrada(
+    tmp_path, caplog
+) -> None:
+    """Uma resposta ruim conta como falha e o log diz o arquivo e a causa."""
+    c = _cliente_resposta(b"<html><body>Manutencao</body></html>")
+    items, _ = c.plan_sync(["candidatos"], [2022], output_dir=tmp_path)
+    with caplog.at_level(logging.WARNING, logger="tse_fetcher.client"):
+        ok, failed = c.download_items(items, tmp_path, force=True)
+    assert (ok, failed) == (0, 1)
+    assert not (tmp_path / "consulta_cand_2022.zip").exists()
+    [(nome, causa)] = c.failures
+    assert nome == "consulta_cand_2022.zip"
+    assert "CorruptPayloadError" in causa
+    avisos = [r for r in caplog.records if r.name == "tse_fetcher.client"]
+    assert len(avisos) == 1
+    mensagem = avisos[0].getMessage()
+    assert "consulta_cand_2022.zip" in mensagem
+    assert "CorruptPayloadError" in mensagem
+
+
+class _FalhaNaUrl:
+    """Dublê de HttpClient que falha numa URL e conclui as demais."""
+
+    def __init__(self, falha: str) -> None:
+        self.falha = falha
+
+    def download_with_manifest(self, url, target, **kwargs):  # noqa: ANN001
+        if self.falha in url:
+            raise OSError("disco cheio\ncom quebra de linha")
+        progress = kwargs.get("progress")
+        if progress is not None:
+            progress(0, 0)
+            progress(100, 100)
+        return Path(target)
+
+
+def test_falhas_listadas_por_arquivo_e_zeradas_a_cada_rodada(tmp_path, caplog) -> None:
+    """sync registra QUAL arquivo falhou e por quê; a lista não acumula."""
+    c = TseClient()
+    c.http = _FalhaNaUrl("bem_candidato_2022")  # type: ignore[assignment]
+    with caplog.at_level(logging.WARNING, logger="tse_fetcher.client"):
+        ok, failed, _ = c.sync(["bens", "candidatos"], [2022], output_dir=tmp_path)
+    assert (ok, failed) == (1, 1)
+    assert c.failures == [
+        ("bem_candidato_2022.zip", "OSError: disco cheio com quebra de linha")
+    ]
+    assert "bem_candidato_2022.zip" in caplog.text
+    ok, failed, _ = c.sync(["candidatos"], [2022], output_dir=tmp_path)
+    assert (ok, failed) == (1, 0)
+    assert c.failures == []
+
+
+def test_download_encaminha_progress_e_formato_zip(client, tmp_path) -> None:
+    """download pede a conferência do ZIP ao cliente HTTP e repassa o progresso."""
+    c, rec, _ = client
+    cb = lambda baixado, total: None  # noqa: E731
+    c.download("bens", 2022, output_dir=tmp_path, progress=cb)
+    assert rec.calls[0]["expected_format"] == "zip"
+    assert rec.calls[0]["progress"] is cb
+
+
+def test_cliente_http_do_host_e_usado_quando_informado() -> None:
+    """Com ``http=``, o TseClient não cria um HttpClient próprio."""
+    http = object()
+    c = TseClient(http=http)  # type: ignore[arg-type]
+    assert c.http is http

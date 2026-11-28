@@ -5,6 +5,23 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Adicionado
+
+- `sync --summary-json ARQUIVO`: grava o resumo da coleta no formato do `sync` do `quantilica-cli` (`schema_version` 1: `total`, `succeeded`, `failed`, `downloaded`, `skipped`, `bytes_downloaded` e `errors` com o arquivo e a causa de cada falha). A opção aparece na ajuda do `sync`, então o host passa a repassá-la (inclusive no `pipeline`).
+
+### Alterado
+
+- O `sync`, o `check` e o `info` usam o cliente HTTP padrão do host (`default_client()`), que respeita `QUANTILICA_HTTP_*`, `QUANTILICA_SSL_VERIFY` e o pacote de certificados, em vez de um `HttpClient` próprio. `TseClient` aceita um `http=` pronto; sem ele (uso como biblioteca) segue criando o seu.
+- `DEFAULT_YEAR_RANGE` deixa de ser o literal `2018:2026`: vai de 2018 ao último ano eleitoral já iniciado (nova função `default_year_range`), como `ELECTION_YEARS`.
+- Requer, para os testes, `quantilica-cli>=0.27.0` (módulo `quantilica.cli.summary`).
+
+### Corrigido
+
+- `download`: o conteúdo é conferido como ZIP (`expected_format="zip"`) antes de ser gravado. Uma página HTML com status 200, um bloqueio ou uma resposta truncada deixam de ser gravados como ZIP: o corpo vai para um temporário e só substitui o destino depois de validado, então uma resposta ruim nunca apaga o arquivo bom que já estava lá. O arquivo recusado conta como falha do `sync` (saída `3` ou `1`).
+- `sync`: a causa de cada falha deixou de ser engolida. Cada arquivo que falha gera uma linha em WARNING com o nome e a causa (classe da exceção e mensagem curta), e o fim do comando lista os que falharam. `TseClient.failures` guarda os pares `(arquivo, causa)` da última rodada.
+
 ## [0.5.1] - 2026-11-19
 
 ### Adicionado

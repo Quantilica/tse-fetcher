@@ -89,6 +89,24 @@ Verbos `sync` (download, idempotente e tudo por padrão), `list` (catálogo
 remoto) e `info` (metadados de um dataset) seguem o vocabulário canônico de
 fetchers do ecossistema.
 
+Sem `--years`, o `sync` e o `check` cobrem de 2018 até o último ano eleitoral já
+iniciado (a janela acompanha o calendário).
+
+### Código de saída e resumo
+
+O `sync` sai com `0` quando todos os arquivos foram baixados (ou já estavam em
+dia), `3` quando parte baixou e parte falhou e `1` quando nada baixou. Cada falha
+é registrada em log (WARNING) com o arquivo e a causa (classe da exceção e
+mensagem curta) e listada ao final do comando. O conteúdo recebido é conferido
+como ZIP antes de ser gravado: uma página HTML com status 200, um bloqueio ou uma
+resposta truncada contam como falha e não substituem o arquivo que já estava no
+destino.
+
+`--summary-json ARQUIVO` grava, ao terminar, o resumo da coleta (`schema_version`
+1, `total`, `succeeded`, `failed`, `downloaded`, `skipped`, `bytes_downloaded` e
+`errors` com `{id, message}` por arquivo que falhou), no mesmo formato do `sync`
+do `quantilica-cli`.
+
 ## Proveniência
 
 Todo download garante gravação atômica + um sidecar de manifesto com `sha256`,

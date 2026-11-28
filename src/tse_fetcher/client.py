@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from quantilica.core.http import HttpClient, is_remote_more_recent
+from quantilica.core.logging import get_logger
 
 from .constants import (
     ALIASES,
@@ -21,6 +23,11 @@ from .constants import (
 )
 
 DONE_CALLBACK = Callable[[str, str], None]
+
+logger = get_logger(__name__)
+
+# Tamanho máximo da mensagem da causa de uma falha, em log e resumo.
+_MAX_CAUSE_CHARS = 300
 
 __all__ = ["DONE_CALLBACK", "SyncPlanItem", "TseClient"]
 
@@ -47,6 +54,7 @@ class TseClient:
         timeout: float = 120.0,
         attempts: int = 3,
         transport=None,
+        http: HttpClient | None = None,
     ) -> None:
         """Inicializar o cliente.
 
@@ -56,9 +64,20 @@ class TseClient:
             attempts (int): Número de tentativas por requisição.
             transport (httpx2.BaseTransport | None): Transporte customizado
                 (usado em testes). Defaults to None.
+            http (HttpClient | None): Cliente HTTP pronto (o do host, que
+                respeita ``QUANTILICA_HTTP_*`` e ``QUANTILICA_SSL_VERIFY``).
+                Quando informado, ``timeout``, ``attempts`` e ``transport``
+                são ignorados. Defaults to None.
         """
         self.base_url = base_url.rstrip("/")
-        self.http = HttpClient(timeout=timeout, attempts=attempts, transport=transport)
+        self.http = http or HttpClient(
+            timeout=timeout, attempts=attempts, transport=transport
+        )
+        # Falhas do último ``download_items``/``sync``: (arquivo, causa).
+        self.failures: list[tuple[str, str]] = []
+        # Contador opcional de transferências (``quantilica.cli.summary``:
+        # ``track``/``succeeded``/``failed``); o plugin o liga para o resumo.
+        self.stats: Any = None
 
     def list_datasets(self) -> list[DatasetSpec]:
         """Listar os datasets suportados.
@@ -120,11 +139,15 @@ class TseClient:
         uf: str | None = None,
         output_dir: Path | str = DEFAULT_OUTPUT,
         force: bool = False,
+        progress: Callable[[int, int], None] | None = None,
     ) -> Path:
         """Baixar um dataset com verificação de frescor e manifest SHA-256.
 
         Gravação atômica com sidecar de proveniência SHA-256 via
-        ``HttpClient.download_with_manifest``.
+        ``HttpClient.download_with_manifest``: o corpo vai para um temporário,
+        é conferido como ZIP (rejeita HTML com status 200, bloqueio e resposta
+        truncada) e só então substitui o destino, de modo que uma resposta
+        ruim nunca apaga o arquivo bom que já estava lá.
 
         Args:
             dataset (str): Nome canônico do dataset.
@@ -132,12 +155,15 @@ class TseClient:
             uf (str | None): Sigla da UF (datasets per_uf). Defaults to None.
             output_dir (Path | str): Diretório de saída. Defaults to "/data/tse".
             force (bool): Baixar mesmo se o arquivo local estiver fresco.
+            progress (Callable | None): Callback ``(baixado, total)`` repassado
+                ao cliente HTTP. Defaults to None.
 
         Returns:
             Path: Caminho do arquivo gravado.
 
         Raises:
             ValueError: Se dataset/ano/UF forem inválidos.
+            StorageError: Se o conteúdo recebido não for um ZIP válido.
         """
         spec = self.get_dataset(dataset)
         url = self.get_download_url(dataset, ano, uf)
@@ -151,6 +177,8 @@ class TseClient:
             dataset_id=dataset_id,
             producer=PRODUCER,
             force=force,
+            progress=progress,
+            expected_format="zip",
         )
 
     def plan_sync(
@@ -261,9 +289,11 @@ class TseClient:
             on_done: Callback por arquivo — ``(filename, result)``.
 
         Returns:
-            tuple[int, int]: (downloads OK, falhas).
+            tuple[int, int]: (downloads OK, falhas). A causa de cada falha
+                fica em ``self.failures`` e no log (WARNING).
         """
         ok = failed = 0
+        self.failures = []
         for item in items:
             ok_one, failed_one = self._download_one(
                 item.dataset, item.ano, item.uf, output_dir, force
@@ -344,14 +374,45 @@ class TseClient:
     ) -> tuple[int, int]:
         """Executar um download individual, capturando qualquer exceção.
 
+        A falha é registrada em ``self.failures`` e no log, com o arquivo e a
+        causa (classe da exceção e mensagem curta).
+
         Returns:
             tuple[int, int]: (1, 0) em sucesso; (0, 1) em falha.
         """
+        tracker = self.stats.track() if self.stats is not None else None
         try:
-            self.download(dataset, ano, uf, output_dir=output_dir, force=force)
-        except Exception:
+            self.download(
+                dataset, ano, uf, output_dir=output_dir, force=force, progress=tracker
+            )
+        except Exception as exc:
+            nome = _nome_do_arquivo(dataset, ano, uf)
+            causa = _causa(exc)
+            logger.warning("Falha ao baixar %s: %s", nome, causa)
+            self.failures.append((nome, causa))
+            if self.stats is not None:
+                self.stats.failed()
             return 0, 1
+        if self.stats is not None:
+            self.stats.succeeded(tracker)
         return 1, 0
+
+
+def _causa(exc: BaseException) -> str:
+    """Causa de uma falha em uma linha: ``Classe: mensagem curta``."""
+    texto = " ".join(str(exc).split())
+    if len(texto) > _MAX_CAUSE_CHARS:
+        texto = texto[: _MAX_CAUSE_CHARS - 1] + "…"
+    nome = type(exc).__name__
+    return f"{nome}: {texto}" if texto else nome
+
+
+def _nome_do_arquivo(dataset: str, ano: int, uf: str | None) -> str:
+    """Nome do ZIP de um item; cai num rótulo legível se o dataset é inválido."""
+    try:
+        return _filename(DATASETS[ALIASES.get(dataset, dataset)], ano, uf)
+    except KeyError:
+        return f"{dataset}_{ano}" + (f"_{uf}" if uf else "")
 
 
 def _plan_item(

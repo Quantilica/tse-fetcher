@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from quantilica.cli.sdk import CheckPlan, CheckPlanItem, FetcherApp
+from quantilica.cli.sdk import CheckPlan, CheckPlanItem, FetcherApp, default_client
+from quantilica.cli.summary import DownloadStats, SummaryRecorder
 from quantilica.cli.ui import expand_years_cli, get_console, setup_rich_logging
 from quantilica.core.exceptions import StorageError
 from quantilica.core.files import write_text_atomic
 from quantilica.core.registry import FetcherInfo
 from quantilica.core.sync import FreshnessPolicy
+from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -36,6 +38,15 @@ console = get_console()
 GROUPS: dict[str, dict[str, Any]] = {
     spec.key: {"name": spec.name} for spec in DATASETS.values()
 }
+
+
+def _new_client() -> TseClient:
+    """Cliente do TSE sobre o cliente HTTP padrão do host.
+
+    O cliente padrão respeita ``QUANTILICA_HTTP_*``, ``QUANTILICA_SSL_VERIFY``
+    e o pacote de certificados configurado para o host.
+    """
+    return TseClient(http=default_client())
 
 
 def tse_list_datasets(group: str) -> list[dict[str, Any]]:
@@ -177,16 +188,73 @@ def cmd_sync(
             "--dry-run", help="Listar arquivos a baixar sem executar download."
         ),
     ] = False,
+    summary_json: Annotated[
+        Path | None,
+        typer.Option(
+            "--summary-json",
+            help="Grava ao final um resumo JSON da coleta (total, baixados, "
+            "falhas e a causa de cada uma), no formato do 'sync' do host.",
+        ),
+    ] = None,
 ) -> None:
     """Baixar/atualizar dados do ODSele (tudo por padrão)."""
     setup_rich_logging(verbose, console=console)
-    client = TseClient()
+    stats = DownloadStats()
+    with SummaryRecorder(
+        summary_json,
+        fetcher=fetcher.name,
+        command="sync",
+        stats_source=lambda: stats,
+    ) as recorder:
+        _run_sync(
+            recorder,
+            stats,
+            datasets=datasets,
+            years=years,
+            output=output,
+            force=force,
+            from_plan=from_plan,
+            dry_run=dry_run,
+        )
+
+
+def _erros_do_resumo(client: TseClient, failed: int) -> list[tuple[str, str]]:
+    """Erros do ``--summary-json``: arquivo e causa de cada falha."""
+    erros = list(client.failures)
+    erros.extend(
+        ("(não identificado)", "falha sem detalhe") for _ in range(failed - len(erros))
+    )
+    return erros
+
+
+def _relatar_falhas(client: TseClient, ok: int, failed: int) -> None:
+    """Lista, uma por linha, o arquivo e a causa de cada falha."""
+    console.print(f"[yellow]⚠[/yellow]  {ok} OK · [red]{failed} falha(s)[/red]")
+    for nome, causa in client.failures:
+        console.print(f"  [red]✗[/red] {escape(nome)}: {escape(causa)}")
+
+
+def _run_sync(
+    recorder: SummaryRecorder,
+    stats: DownloadStats,
+    *,
+    datasets: list[str] | None,
+    years: list[str] | None,
+    output: Path,
+    force: bool,
+    from_plan: Path | None,
+    dry_run: bool,
+) -> None:
+    """Corpo do ``sync``: preenche ``recorder`` e sai com o código do contrato."""
+    client = _new_client()
+    client.stats = stats
 
     if from_plan is not None:
         try:
             plan = CheckPlan.from_json(from_plan.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             console.print(f"[red]Plano inválido:[/red] {exc}")
+            recorder.error = f"Plano inválido: {exc}"
             raise typer.Exit(code=1) from None
         items = []
         for v in plan.items:
@@ -209,9 +277,12 @@ def cmd_sync(
             f"[dim]Plano {from_plan}: {len(items)} entrada(s) com ação "
             f"'download' de {len(plan.items)} verificada(s).[/dim]"
         )
+        recorder.total = len(items)
         ok, failed = client.download_items(items, output, force=force)
+        recorder.total, recorder.succeeded = ok + failed, ok
+        recorder.errors = _erros_do_resumo(client, failed)
         if failed:
-            console.print(f"[yellow]⚠[/yellow]  {ok} OK · [red]{failed} falha(s)[/red]")
+            _relatar_falhas(client, ok, failed)
         else:
             console.print(f"[green]✓[/green]  [bold]{ok}[/bold] itens baixados.")
         if code := sync_exit_code(ok, failed):
@@ -227,10 +298,13 @@ def cmd_sync(
             client.get_dataset(dataset)
     except ValueError as exc:
         console.print(f"[red]Erro:[/red] {exc}")
+        recorder.error = str(exc)
         raise typer.Exit(code=1) from None
 
     if dry_run:
         items, skipped = client.plan_sync(selections, anos, output_dir=output)
+        recorder.dry_run = True
+        recorder.total, recorder.succeeded, recorder.errors = len(items), 0, []
         table = Table(show_header=True, header_style="bold")
         table.add_column("Dataset", style="cyan")
         table.add_column("Ano", justify="right")
@@ -288,11 +362,11 @@ def cmd_sync(
             on_done=on_done,
         )
 
+    recorder.total, recorder.succeeded = ok + failed, ok
+    recorder.errors = _erros_do_resumo(client, failed)
     if failed:
-        console.print(
-            f"[yellow]⚠[/yellow]  {ok} OK · [red]{failed} falha(s)[/red]"
-            f" · {skipped} skip"
-        )
+        _relatar_falhas(client, ok, failed)
+        console.print(f"[dim]{skipped} skip[/dim]")
     else:
         console.print(
             f"[green]✓[/green]  [bold]{ok}[/bold] itens baixados."
@@ -340,7 +414,7 @@ def cmd_check(
     setup_rich_logging(verbose, console=console)
     anos = expand_years_cli(years, default_range=DEFAULT_YEAR_RANGE, console=console)
     selections = datasets if datasets else sorted(DATASETS)
-    client = TseClient()
+    client = _new_client()
 
     try:
         for dataset in selections:
@@ -382,7 +456,7 @@ def cmd_info(
     """Exibir metadados de um dataset específico."""
     setup_rich_logging(False, console=console)
 
-    client = TseClient()
+    client = _new_client()
     try:
         spec = client.get_dataset(dataset)
         url = client.get_download_url(spec.key, spec.first_year)
