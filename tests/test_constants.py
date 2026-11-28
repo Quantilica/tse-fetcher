@@ -5,6 +5,7 @@ import datetime as dt
 from tse_fetcher.constants import (
     ALIASES,
     BASE_URL,
+    CURRENT_ELECTION_YEAR_FROM,
     DATASETS,
     DEFAULT_YEAR_RANGE,
     ELECTION_YEARS,
@@ -80,10 +81,23 @@ def test_anos_eleitorais_seguem_a_data() -> None:
     assert ELECTION_YEARS[0] == 1994
 
 
-def test_janela_padrao_acompanha_o_ano_corrente() -> None:
-    """A janela padrão termina no último ano eleitoral já iniciado."""
+def test_janela_padrao_acompanha_o_calendario() -> None:
+    """A janela termina na eleição anterior até o corte, e a corrente depois dele."""
     assert default_year_range(dt.date(2026, 11, 28)) == "2018:2026"
     assert default_year_range(dt.date(2027, 3, 1)) == "2018:2026"
-    assert default_year_range(dt.date(2028, 1, 2)) == "2018:2028"
-    assert default_year_range(dt.date(2030, 6, 1)) == "2018:2030"
-    assert DEFAULT_YEAR_RANGE == f"2018:{ELECTION_YEARS[-1]}"
+    assert default_year_range(dt.date(2029, 1, 1)) == "2018:2028"
+    assert default_year_range(dt.date(2030, 12, 31)) == "2018:2030"
+
+
+def test_janela_padrao_nao_inclui_o_ano_eleitoral_antes_da_publicacao() -> None:
+    """Em 2028, de janeiro ao dia anterior ao corte a janela fica em 2026."""
+    corte = dt.date(2028, *CURRENT_ELECTION_YEAR_FROM)
+    assert default_year_range(dt.date(2028, 1, 1)) == "2018:2026"
+    assert default_year_range(dt.date(2028, 7, 31)) == "2018:2026"
+    assert default_year_range(corte - dt.timedelta(days=1)) == "2018:2026"
+    assert default_year_range(corte) == "2018:2028"
+    assert default_year_range(dt.date(2028, 11, 30)) == "2018:2028"
+
+
+def test_janela_padrao_do_modulo_usa_a_data_de_hoje() -> None:
+    assert DEFAULT_YEAR_RANGE == default_year_range()

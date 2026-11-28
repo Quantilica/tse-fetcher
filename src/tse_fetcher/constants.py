@@ -86,11 +86,26 @@ ELECTION_YEARS: tuple[int, ...] = election_years()
 
 FIRST_DEFAULT_YEAR = 2018
 
+# O ano eleitoral corrente só entra na janela padrão a partir desta data
+# (mês, dia): os ZIPs do ano só passam a existir no CDN depois do registro das
+# candidaturas (prazo em 15 de agosto), e antes disso todo arquivo do ano
+# daria 404 e o ``sync`` sairia com 3 todos os dias. Com ``-y`` explícito o ano
+# pode ser pedido a qualquer momento.
+CURRENT_ELECTION_YEAR_FROM = (8, 15)
+
 
 def default_year_range(today: dt.date | None = None) -> str:
-    """Janela padrão do ``sync``/``check``: de 2018 ao último ano eleitoral já
-    iniciado (acompanha o calendário, como ``election_years``)."""
-    return f"{FIRST_DEFAULT_YEAR}:{election_years(today)[-1]}"
+    """Janela padrão do ``sync``/``check``.
+
+    Vai de 2018 ao último ano eleitoral cujos arquivos já devem existir: o ano
+    par corrente só entra a partir de ``CURRENT_ELECTION_YEAR_FROM``; antes
+    disso a janela termina na eleição anterior.
+    """
+    hoje = today or dt.date.today()
+    ultimo = election_years(hoje)[-1]
+    if ultimo == hoje.year and hoje < dt.date(hoje.year, *CURRENT_ELECTION_YEAR_FROM):
+        ultimo -= 2
+    return f"{FIRST_DEFAULT_YEAR}:{ultimo}"
 
 
 DEFAULT_YEAR_RANGE = default_year_range()
