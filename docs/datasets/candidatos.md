@@ -76,7 +76,7 @@ Cadastro das candidaturas registradas na Justiça Eleitoral a cada eleição, pu
 - O fetcher baixa `consulta_cand_<ano>.zip` do CDN de estatísticas eleitorais do TSE (`https://cdn.tse.jus.br/estatistica/sead/odsele/consulta_cand/`), um ZIP por ano eleitoral.
 - No bruto o arquivo guarda o nome da fonte, com o manifesto ao lado (`consulta_cand_2024.zip` e `consulta_cand_2024.zip.manifest.json`). Uma versão nova substitui a anterior.
 - Dentro do ZIP há `leiame.pdf` (o layout oficial, descartado na conversão), um CSV por UF (`consulta_cand_<ano>_<UF>.csv`, incluindo `DF`), o consolidado `consulta_cand_<ano>_BRASIL.csv` e, nos anos de eleição geral (2018, 2022, 2026), `consulta_cand_<ano>_BR.csv` com as candidaturas de abrangência nacional (Presidente e Vice).
-- Conferido em 2026-11-10 pela listagem do bruto: ZIPs de 2018, 2020, 2022, 2024 e 2026. O fetcher aceita anos desde 1994 (`DEFAULT_YEAR_RANGE` é 2018:2026); a fonte publica desde 1933.
+- Conferido em 2026-11-10 pela listagem do bruto: ZIPs de 2018, 2020, 2022, 2024 e 2026. O fetcher aceita anos desde 1994 (a janela padrão do `sync` vai de 2018 ao último ano eleitoral já iniciado, hoje 2026); a fonte publica desde 1933.
 
 ## Conteúdo
 

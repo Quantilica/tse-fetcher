@@ -1,12 +1,16 @@
 """Testes das constantes do tse-fetcher."""
 
+import datetime as dt
+
 from tse_fetcher.constants import (
     ALIASES,
     BASE_URL,
     DATASETS,
+    DEFAULT_YEAR_RANGE,
     ELECTION_YEARS,
     UFS,
     DatasetSpec,
+    default_year_range,
     election_years,
 )
 
@@ -74,3 +78,12 @@ def test_anos_eleitorais_seguem_a_data() -> None:
     assert election_years(dt.date(2028, 1, 1))[-1] == 2028
     assert election_years(dt.date(2028, 1, 1))[:-1] == tuple(range(1994, 2027, 2))
     assert ELECTION_YEARS[0] == 1994
+
+
+def test_janela_padrao_acompanha_o_ano_corrente() -> None:
+    """A janela padrão termina no último ano eleitoral já iniciado."""
+    assert default_year_range(dt.date(2026, 11, 28)) == "2018:2026"
+    assert default_year_range(dt.date(2027, 3, 1)) == "2018:2026"
+    assert default_year_range(dt.date(2028, 1, 2)) == "2018:2028"
+    assert default_year_range(dt.date(2030, 6, 1)) == "2018:2030"
+    assert DEFAULT_YEAR_RANGE == f"2018:{ELECTION_YEARS[-1]}"

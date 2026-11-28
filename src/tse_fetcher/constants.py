@@ -13,7 +13,6 @@ SOURCE_ID = "tse"
 PRODUCER = "Tribunal Superior Eleitoral"
 
 DEFAULT_OUTPUT = "/data/tse"
-DEFAULT_YEAR_RANGE = "2018:2026"
 
 
 @dataclass(frozen=True)
@@ -84,6 +83,17 @@ def election_years(today: dt.date | None = None) -> tuple[int, ...]:
 
 # Anos eleitorais: pares desde 1994, calculados a partir da data corrente.
 ELECTION_YEARS: tuple[int, ...] = election_years()
+
+FIRST_DEFAULT_YEAR = 2018
+
+
+def default_year_range(today: dt.date | None = None) -> str:
+    """Janela padrão do ``sync``/``check``: de 2018 ao último ano eleitoral já
+    iniciado (acompanha o calendário, como ``election_years``)."""
+    return f"{FIRST_DEFAULT_YEAR}:{election_years(today)[-1]}"
+
+
+DEFAULT_YEAR_RANGE = default_year_range()
 
 UFS: tuple[str, ...] = (
     "AC",
