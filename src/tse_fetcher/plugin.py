@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Annotated, Any
 
 import typer
-from quantilica.cli.sdk import CheckPlan, CheckPlanItem, FetcherApp, default_client
-from quantilica.cli.summary import DownloadStats, SummaryRecorder
+from quantilica.cli.sdk import CheckPlan, CheckPlanItem, FetcherApp
 from quantilica.cli.ui import expand_years_cli, get_console, setup_rich_logging
 from quantilica.core.exceptions import StorageError
 from quantilica.core.files import write_text_atomic
@@ -31,6 +32,17 @@ from .client import SyncPlanItem, TseClient
 from .constants import ALIASES, DATASETS, DEFAULT_YEAR_RANGE
 from .storage import DataRepository
 
+# Os dois itens abaixo vêm do host, mas não existem em hosts antigos: sem eles o
+# plugin continua carregando (cliente HTTP próprio; sem ``--summary-json``).
+try:
+    from quantilica.cli.sdk import default_client
+except ImportError:  # pragma: no cover - host sem o cliente padrão
+    default_client = None
+try:
+    from quantilica.cli.summary import DownloadStats, SummaryRecorder
+except ImportError:  # pragma: no cover - host anterior ao módulo de resumo
+    DownloadStats = SummaryRecorder = None
+
 _DEFAULT_OUTPUT = Path("/data/tse")
 console = get_console()
 
@@ -46,6 +58,8 @@ def _new_client() -> TseClient:
     O cliente padrão respeita ``QUANTILICA_HTTP_*``, ``QUANTILICA_SSL_VERIFY``
     e o pacote de certificados configurado para o host.
     """
+    if default_client is None:  # pragma: no cover - host antigo
+        return TseClient()
     return TseClient(http=default_client())
 
 
@@ -148,64 +162,78 @@ def sync_exit_code(ok: int, failed: int) -> int:
     return EXIT_SYNC_PARTIAL if ok > 0 else 1
 
 
-def cmd_sync(
-    datasets: Annotated[
-        list[str] | None,
-        typer.Argument(help="Datasets a sincronizar. Omitir para baixar todos."),
-    ] = None,
-    years: Annotated[
-        list[str] | None,
-        typer.Option(
-            "-y",
-            "--years",
-            help="Anos (ex: 2022) ou intervalos (2020:2022).",
-        ),
-    ] = None,
-    output: Annotated[
-        Path,
-        typer.Option("-o", "--output", help="Diretório de saída"),
-    ] = _DEFAULT_OUTPUT,
-    force: Annotated[
-        bool,
-        typer.Option(
-            "--force",
-            help="Ignora a checagem de frescor local (arquivo/sidecar) "
-            "e baixa todas as entradas selecionadas (útil com --from-plan)",
-        ),
-    ] = False,
-    from_plan: Annotated[
-        Path | None,
-        typer.Option(
-            "--from-plan",
-            help="Baixar somente as entradas com ação 'download' de um plano "
-            "gerado por 'check' (ignora datasets/anos).",
-        ),
-    ] = None,
-    verbose: Annotated[bool, typer.Option("--verbose", help="Logs detalhados")] = False,
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run", help="Listar arquivos a baixar sem executar download."
-        ),
-    ] = False,
-    summary_json: Annotated[
-        Path | None,
-        typer.Option(
-            "--summary-json",
-            help="Grava ao final um resumo JSON da coleta (total, baixados, "
-            "falhas e a causa de cada uma), no formato do 'sync' do host.",
-        ),
-    ] = None,
+_DatasetsArg = Annotated[
+    list[str] | None,
+    typer.Argument(help="Datasets a sincronizar. Omitir para baixar todos."),
+]
+_YearsOpt = Annotated[
+    list[str] | None,
+    typer.Option(
+        "-y",
+        "--years",
+        help="Anos (ex: 2022) ou intervalos (2020:2022).",
+    ),
+]
+_OutputOpt = Annotated[
+    Path,
+    typer.Option("-o", "--output", help="Diretório de saída"),
+]
+_ForceOpt = Annotated[
+    bool,
+    typer.Option(
+        "--force",
+        help="Ignora a checagem de frescor local (arquivo/sidecar) "
+        "e baixa todas as entradas selecionadas (útil com --from-plan)",
+    ),
+]
+_FromPlanOpt = Annotated[
+    Path | None,
+    typer.Option(
+        "--from-plan",
+        help="Baixar somente as entradas com ação 'download' de um plano "
+        "gerado por 'check' (ignora datasets/anos).",
+    ),
+]
+_VerboseOpt = Annotated[bool, typer.Option("--verbose", help="Logs detalhados")]
+_DryRunOpt = Annotated[
+    bool,
+    typer.Option("--dry-run", help="Listar arquivos a baixar sem executar download."),
+]
+_SummaryJsonOpt = Annotated[
+    Path | None,
+    typer.Option(
+        "--summary-json",
+        help="Grava ao final um resumo JSON da coleta (total, baixados, "
+        "falhas e a causa de cada uma), no formato do 'sync' do host.",
+    ),
+]
+
+
+def _sync(
+    summary_json: Path | None,
+    *,
+    datasets: list[str] | None,
+    years: list[str] | None,
+    output: Path,
+    force: bool,
+    from_plan: Path | None,
+    verbose: bool,
+    dry_run: bool,
 ) -> None:
-    """Baixar/atualizar dados do ODSele (tudo por padrão)."""
+    """Corpo comum do ``sync`` (com ou sem o módulo de resumo do host)."""
     setup_rich_logging(verbose, console=console)
-    stats = DownloadStats()
-    with SummaryRecorder(
-        summary_json,
-        fetcher=fetcher.name,
-        command="sync",
-        stats_source=lambda: stats,
-    ) as recorder:
+    if SummaryRecorder is None or DownloadStats is None:
+        stats = None
+        contexto: Any = contextlib.nullcontext(SimpleNamespace())
+    else:
+        stats = DownloadStats()
+        contexto = SummaryRecorder(
+            summary_json,
+            fetcher=fetcher.name,
+            command="sync",
+            stats_source=lambda: stats,
+        )
+    with contexto as recorder:
         _run_sync(
             recorder,
             stats,
@@ -216,6 +244,56 @@ def cmd_sync(
             from_plan=from_plan,
             dry_run=dry_run,
         )
+
+
+def _cmd_sync_com_resumo(
+    datasets: _DatasetsArg = None,
+    years: _YearsOpt = None,
+    output: _OutputOpt = _DEFAULT_OUTPUT,
+    force: _ForceOpt = False,
+    from_plan: _FromPlanOpt = None,
+    verbose: _VerboseOpt = False,
+    dry_run: _DryRunOpt = False,
+    summary_json: _SummaryJsonOpt = None,
+) -> None:
+    """Baixar/atualizar dados do ODSele (tudo por padrão)."""
+    _sync(
+        summary_json,
+        datasets=datasets,
+        years=years,
+        output=output,
+        force=force,
+        from_plan=from_plan,
+        verbose=verbose,
+        dry_run=dry_run,
+    )
+
+
+def _cmd_sync_sem_resumo(
+    datasets: _DatasetsArg = None,
+    years: _YearsOpt = None,
+    output: _OutputOpt = _DEFAULT_OUTPUT,
+    force: _ForceOpt = False,
+    from_plan: _FromPlanOpt = None,
+    verbose: _VerboseOpt = False,
+    dry_run: _DryRunOpt = False,
+) -> None:
+    """Baixar/atualizar dados do ODSele (tudo por padrão)."""
+    _sync(
+        None,
+        datasets=datasets,
+        years=years,
+        output=output,
+        force=force,
+        from_plan=from_plan,
+        verbose=verbose,
+        dry_run=dry_run,
+    )
+
+
+# O host só repassa ``--summary-json`` se a ajuda do ``sync`` o anuncia: num host
+# sem o módulo de resumo a opção nem é declarada.
+cmd_sync = _cmd_sync_sem_resumo if SummaryRecorder is None else _cmd_sync_com_resumo
 
 
 def _erros_do_resumo(client: TseClient, failed: int) -> list[tuple[str, str]]:
@@ -235,8 +313,8 @@ def _relatar_falhas(client: TseClient, ok: int, failed: int) -> None:
 
 
 def _run_sync(
-    recorder: SummaryRecorder,
-    stats: DownloadStats,
+    recorder: Any,
+    stats: Any,
     *,
     datasets: list[str] | None,
     years: list[str] | None,

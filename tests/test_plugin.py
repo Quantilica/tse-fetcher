@@ -487,3 +487,29 @@ def test_cliente_do_plugin_usa_o_cliente_http_padrao_do_host(monkeypatch) -> Non
     sentinela = object()
     monkeypatch.setattr(plugin_module, "default_client", lambda: sentinela)
     assert plugin_module._new_client().http is sentinela
+
+
+def test_plugin_carrega_em_host_sem_modulo_de_resumo(monkeypatch, tmp_path) -> None:
+    """Sem ``quantilica.cli.summary`` o plugin carrega e não anuncia --summary-json."""
+    import importlib
+    import sys
+
+    chave = "tse_fetcher.plugin"
+    original = sys.modules[chave]
+    monkeypatch.setitem(sys.modules, "quantilica.cli.summary", None)
+    monkeypatch.delitem(sys.modules, chave)
+    try:
+        novo = importlib.import_module(chave)
+        assert novo.SummaryRecorder is None
+        ajuda = runner.invoke(novo.app, ["sync", "--help"])
+        assert ajuda.exit_code == 0
+        assert "--summary-json" not in ajuda.output
+        assert "--dry-run" in ajuda.output
+        # Sem o módulo o sync segue funcionando (e sai com o código do contrato).
+        novo.TseClient = plugin_module.TseClient
+        result = runner.invoke(
+            novo.app, ["sync", "foofetch", "-y", "2022", "-o", str(tmp_path)]
+        )
+        assert result.exit_code == 1
+    finally:
+        sys.modules[chave] = original

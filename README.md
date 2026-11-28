@@ -89,8 +89,10 @@ Verbos `sync` (download, idempotente e tudo por padrão), `list` (catálogo
 remoto) e `info` (metadados de um dataset) seguem o vocabulário canônico de
 fetchers do ecossistema.
 
-Sem `--years`, o `sync` e o `check` cobrem de 2018 até o último ano eleitoral já
-iniciado (a janela acompanha o calendário).
+Sem `--years`, o `sync` e o `check` cobrem de 2018 até o último ano eleitoral
+cujos arquivos já devem existir: o ano eleitoral corrente só entra a partir de 15
+de agosto (antes disso os ZIPs do ano ainda não foram publicados). Com `-y` o ano
+pode ser pedido a qualquer momento.
 
 ### Código de saída e resumo
 
@@ -105,7 +107,8 @@ destino.
 `--summary-json ARQUIVO` grava, ao terminar, o resumo da coleta (`schema_version`
 1, `total`, `succeeded`, `failed`, `downloaded`, `skipped`, `bytes_downloaded` e
 `errors` com `{id, message}` por arquivo que falhou), no mesmo formato do `sync`
-do `quantilica-cli`.
+do `quantilica-cli`. A opção exige um host com o módulo `quantilica.cli.summary`
+(`quantilica-cli >= 0.27.0`); num host mais antigo o plugin carrega sem ela.
 
 ## Proveniência
 

@@ -9,17 +9,17 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
-- `sync --summary-json ARQUIVO`: grava o resumo da coleta no formato do `sync` do `quantilica-cli` (`schema_version` 1: `total`, `succeeded`, `failed`, `downloaded`, `skipped`, `bytes_downloaded` e `errors` com o arquivo e a causa de cada falha). A opção aparece na ajuda do `sync`, então o host passa a repassá-la (inclusive no `pipeline`).
+- `sync --summary-json ARQUIVO`: grava o resumo da coleta no formato do `sync` do `quantilica-cli` (`schema_version` 1: `total`, `succeeded`, `failed`, `downloaded`, `skipped`, `bytes_downloaded` e `errors` com o arquivo e a causa de cada falha). A opção aparece na ajuda do `sync`, então o host a repassa. Num host sem o módulo `quantilica.cli.summary` o plugin continua carregando, e a opção não é declarada.
 
 ### Alterado
 
 - O `sync`, o `check` e o `info` usam o cliente HTTP padrão do host (`default_client()`), que respeita `QUANTILICA_HTTP_*`, `QUANTILICA_SSL_VERIFY` e o pacote de certificados, em vez de um `HttpClient` próprio. `TseClient` aceita um `http=` pronto; sem ele (uso como biblioteca) segue criando o seu.
-- `DEFAULT_YEAR_RANGE` deixa de ser o literal `2018:2026`: vai de 2018 ao último ano eleitoral já iniciado (nova função `default_year_range`), como `ELECTION_YEARS`.
-- Requer, para os testes, `quantilica-cli>=0.27.0` (módulo `quantilica.cli.summary`).
+- `DEFAULT_YEAR_RANGE` deixa de ser o literal `2018:2026`: vai de 2018 ao último ano eleitoral cujos ZIPs já devem existir (nova função `default_year_range`). O ano par corrente só entra a partir de 15 de agosto (`CURRENT_ELECTION_YEAR_FROM`); antes disso a janela termina na eleição anterior, para que de janeiro a agosto de um ano eleitoral os 404 de arquivos ainda não publicados não deixem o `sync` com saída 3 todo dia. Com `-y` explícito qualquer ano eleitoral pode ser pedido.
+- Os testes exigem `quantilica-cli>=0.27.0` (módulo `quantilica.cli.summary`).
 
 ### Corrigido
 
-- `download`: o conteúdo é conferido como ZIP (`expected_format="zip"`) antes de ser gravado. Uma página HTML com status 200, um bloqueio ou uma resposta truncada deixam de ser gravados como ZIP: o corpo vai para um temporário e só substitui o destino depois de validado, então uma resposta ruim nunca apaga o arquivo bom que já estava lá. O arquivo recusado conta como falha do `sync` (saída `3` ou `1`).
+- `download`: o conteúdo recebido é conferido como ZIP pela assinatura (`expected_format="zip"`) antes de ser gravado. Isso recusa o que não é um ZIP válido (cabeçalho errado, arquivo truncado sem o diretório central), além do que o cliente já recusava (página HTML ou bloqueio com status 200). O arquivo recusado conta como falha do `sync` (saída `3` ou `1`) e, como o cliente grava num temporário e só substitui o destino depois da validação, o arquivo bom que já estava lá permanece intacto; testes cobrem os três casos com o cliente HTTP real.
 - `sync`: a causa de cada falha deixou de ser engolida. Cada arquivo que falha gera uma linha em WARNING com o nome e a causa (classe da exceção e mensagem curta), e o fim do comando lista os que falharam. `TseClient.failures` guarda os pares `(arquivo, causa)` da última rodada.
 
 ## [0.5.1] - 2026-11-19
